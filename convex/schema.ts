@@ -1,0 +1,171 @@
+import { defineSchema, defineTable } from "convex/server";
+import { v } from "convex/values";
+
+export default defineSchema({
+    users: defineTable({
+        email: v.string(),
+        phoneNumber: v.optional(v.string()),
+        firstName: v.string(),
+        lastName: v.string(),
+        role: v.union(v.literal("BUYER"), v.literal("SELLER"), v.literal("ADMIN")),
+        shopName: v.optional(v.string()),
+        shopDescription: v.optional(v.string()),
+        shopLogo: v.optional(v.string()),
+        password: v.optional(v.string()),
+
+        isActive: v.boolean(),
+        isVerified: v.boolean(),
+    })
+        .index("by_email", ["email"]),
+
+    addresses: defineTable({
+        userId: v.id("users"),
+        fullName: v.string(),
+        phoneNumber: v.string(),
+        streetAddress: v.string(),
+        barangay: v.string(),
+        city: v.string(),
+        province: v.string(),
+        postalCode: v.optional(v.string()),
+        isDefault: v.boolean(),
+    }).index("by_user", ["userId"]),
+
+    categories: defineTable({
+        name: v.string(),
+        slug: v.string(),
+        description: v.optional(v.string()),
+        imageUrl: v.optional(v.string()),
+        isActive: v.boolean(),
+        sortOrder: v.number(),
+    }).index("by_slug", ["slug"]),
+
+    products: defineTable({
+        sellerId: v.id("users"),
+        categoryId: v.id("categories"),
+        name: v.string(),
+        slug: v.string(),
+        description: v.string(),
+        species: v.optional(v.string()),
+        strain: v.optional(v.string()),
+        gender: v.optional(v.string()),
+        size: v.optional(v.string()),
+        age: v.optional(v.string()),
+        price: v.number(),
+        comparePrice: v.optional(v.number()),
+        stock: v.number(),
+        minOrder: v.number(),
+        maxOrder: v.optional(v.number()),
+        city: v.string(),
+        province: v.string(),
+        status: v.union(v.literal("ACTIVE"), v.literal("INACTIVE"), v.literal("OUT_OF_STOCK")),
+        views: v.number(),
+        sales: v.number(),
+    })
+        .index("by_seller", ["sellerId"])
+        .index("by_category", ["categoryId"])
+        .index("by_slug", ["slug"])
+        .index("by_status", ["status"]),
+
+    product_images: defineTable({
+        productId: v.id("products"),
+        imageUrl: v.string(),
+        publicId: v.string(),
+        altText: v.optional(v.string()),
+        sortOrder: v.number(),
+    }).index("by_product", ["productId"]),
+
+    orders: defineTable({
+        orderNumber: v.string(),
+        buyerId: v.id("users"),
+        addressId: v.id("addresses"),
+        subtotal: v.number(),
+        shippingFee: v.number(),
+        total: v.number(),
+        paymentMethod: v.union(v.literal("GCASH"), v.literal("MAYA"), v.literal("CARD"), v.literal("BANK_TRANSFER"), v.literal("COD")),
+        paymentStatus: v.union(v.literal("PENDING"), v.literal("PROCESSING"), v.literal("PAID"), v.literal("FAILED"), v.literal("REFUNDED")),
+        status: v.union(v.literal("PENDING"), v.literal("CONFIRMED"), v.literal("PROCESSING"), v.literal("SHIPPED"), v.literal("DELIVERED"), v.literal("CANCELLED"), v.literal("REFUNDED")),
+        trackingNumber: v.optional(v.string()),
+        courier: v.optional(v.string()),
+        buyerNotes: v.optional(v.string()),
+        sellerNotes: v.optional(v.string()),
+        confirmedAt: v.optional(v.number()),
+        shippedAt: v.optional(v.number()),
+        deliveredAt: v.optional(v.number()),
+        cancelledAt: v.optional(v.number()),
+    })
+        .index("by_orderNumber", ["orderNumber"])
+        .index("by_buyer", ["buyerId"])
+        .index("by_status", ["status"]),
+
+    order_items: defineTable({
+        orderId: v.id("orders"),
+        productId: v.id("products"),
+        quantity: v.number(),
+        price: v.number(),
+        subtotal: v.number(),
+        productName: v.string(),
+        productImage: v.optional(v.string()),
+    }).index("by_order", ["orderId"]),
+
+    payments: defineTable({
+        orderId: v.id("orders"),
+        amount: v.number(),
+        paymentMethod: v.union(v.literal("GCASH"), v.literal("MAYA"), v.literal("CARD"), v.literal("BANK_TRANSFER"), v.literal("COD")),
+        status: v.union(v.literal("PENDING"), v.literal("PROCESSING"), v.literal("PAID"), v.literal("FAILED"), v.literal("REFUNDED")),
+        paymentIntentId: v.optional(v.string()),
+        sourceId: v.optional(v.string()),
+        transactionId: v.optional(v.string()),
+        paidAt: v.optional(v.number()),
+        refundedAmount: v.optional(v.number()),
+        refundedAt: v.optional(v.number()),
+        refundReason: v.optional(v.string()),
+        metadata: v.optional(v.any()),
+    })
+        .index("by_order", ["orderId"])
+        .index("by_paymentIntentId", ["paymentIntentId"]),
+
+    reviews: defineTable({
+        productId: v.id("products"),
+        userId: v.id("users"),
+        rating: v.number(),
+        comment: v.optional(v.string()),
+        images: v.array(v.string()),
+        helpfulCount: v.number(),
+        sellerResponse: v.optional(v.string()),
+        respondedAt: v.optional(v.number()),
+    })
+        .index("by_product", ["productId"])
+        .index("by_user", ["userId"])
+        .index("by_product_user", ["productId", "userId"]),
+
+    notifications: defineTable({
+        userId: v.id("users"),
+        type: v.string(),
+        title: v.string(),
+        message: v.string(),
+        data: v.optional(v.any()),
+        isRead: v.boolean(),
+        readAt: v.optional(v.number()),
+    }).index("by_user_read", ["userId", "isRead"]),
+
+    conversations: defineTable({
+        productId: v.optional(v.id("products")),
+    }),
+
+    conversation_participants: defineTable({
+        conversationId: v.id("conversations"),
+        userId: v.id("users"),
+        joinedAt: v.number(),
+    })
+        .index("by_conversation", ["conversationId"])
+        .index("by_user", ["userId"])
+        .index("by_conversation_user", ["conversationId", "userId"]),
+
+    chat_messages: defineTable({
+        conversationId: v.id("conversations"),
+        senderId: v.id("users"),
+        content: v.string(),
+        isRead: v.boolean(),
+    })
+        .index("by_conversation", ["conversationId"]),
+});

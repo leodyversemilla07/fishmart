@@ -1,0 +1,238 @@
+import { api } from '@/convex/_generated/api';
+import { Category } from '@/types';
+import { pickImage, uploadImage } from '@/utils/upload';
+import { useMutation, useQuery } from 'convex/react';
+import { Image as ExpoImage } from 'expo-image';
+import { router, useLocalSearchParams } from 'expo-router';
+import { LucideArrowLeft, LucideCamera, LucideX } from 'lucide-react-native';
+import { useEffect, useState } from 'react';
+import { ActivityIndicator, Alert, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { Button, HelperText, Text, TextInput, useTheme } from 'react-native-paper';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+interface ExistingImage {
+    id: string;
+    imageUrl: string;
+    isExisting: true;
+}
+
+interface NewImage {
+    uri: string;
+    base64?: string;
+    isExisting: false;
+}
+
+type ProductImage = ExistingImage | NewImage;
+
+export default function EditProductScreen() {
+    const theme = useTheme();
+    const insets = useSafeAreaInsets();
+    const { id } = useLocalSearchParams<{ id: string }>();
+
+    // Convex Query
+    const product = useQuery(api.products.get, { id: id as any });
+    const categoriesList = useQuery(api.categories.list) || [];
+    const updateProductMutation = useMutation(api.products.update);
+
+    const [name, setName] = useState('');
+    const [description, setDescription] = useState('');
+    const [price, setPrice] = useState('');
+    const [stock, setStock] = useState('1');
+    const [category, setCategory] = useState('');
+    const [location, setLocation] = useState('');
+
+    const [images, setImages] = useState<ProductImage[]>([]);
+
+    const [loading, setLoading] = useState(true);
+    const [saving, setSaving] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+
+    useEffect(() => {
+        if (product) {
+            setName(product.name || '');
+            setDescription(product.description || '');
+            setPrice(product.price?.toString() || '');
+            setStock(product.stock?.toString() || '1');
+            setLocation(product.city || '');
+            setCategory(product.categoryId || '');
+
+            if (product.images && product.images.length > 0) {
+                setImages(product.images.map((img: any) => ({
+                    id: img._id,
+                    imageUrl: img.imageUrl,
+                    isExisting: true,
+                })));
+            }
+            setLoading(false);
+        }
+    }, [product]);
+
+    const handlePickImages = async () => {
+        try {
+            const result = await pickImage(true);
+            if (result && !result.canceled && result.assets) {
+                const newImages: NewImage[] = result.assets.map((asset: any) => ({
+                    uri: asset.uri,
+                    base64: asset.base64,
+                    isExisting: false as const,
+                }));
+                setImages(prev => [...prev, ...newImages]);
+            }
+        } catch (err) {
+            console.error(err);
+            Alert.alert('Error', 'Failed to pick image');
+        }
+    };
+
+    const removeImage = (index: number) => {
+        setImages(prev => prev.filter((_, i) => i !== index));
+    };
+
+    const handleSubmit = async () => {
+        if (!name.trim() || !description.trim() || !price || !category || !location.trim()) {
+            setError('Please fill in all required fields');
+            return;
+        }
+
+        setSaving(true);
+        setError(null);
+
+        try {
+            const finalImageUrls: string[] = [];
+            for (const img of images) {
+                if (img.isExisting) {
+                    finalImageUrls.push(img.imageUrl);
+                } else if (img.base64) {
+                    const url = await uploadImage(img.uri, img.base64, 'products', 'listings');
+                    finalImageUrls.push(url);
+                }
+            }
+
+            await updateProductMutation({
+                id: id as any,
+                name: name.trim(),
+                description: description.trim(),
+                price: parseFloat(price),
+                stock: parseInt(stock) || 1,
+                categoryId: category as any,
+                city: location.trim(),
+                province: location.trim(),
+                images: finalImageUrls,
+            });
+
+            Alert.alert('Success', 'Product updated successfully', [{ text: 'OK', onPress: () => router.back() }]);
+        } catch (err: any) {
+            setError(err.message || 'Failed to update product');
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    if (loading || product === undefined) {
+        return (
+            <View style={[styles.container, styles.loadingContainer]}>
+                <ActivityIndicator size="large" color={theme.colors.primary} />
+            </View>
+        );
+    }
+
+    return (
+        <View style={[styles.container, { paddingTop: insets.top }]}>
+            <View style={[styles.header, { backgroundColor: theme.colors.elevation.level2 }]}>
+                <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+                    <LucideArrowLeft size={24} color="#1E293B" />
+                </TouchableOpacity>
+                <Text variant="titleLarge" style={styles.headerTitle}>Edit Product</Text>
+                <View style={{ width: 40 }} />
+            </View>
+
+            <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+                <View style={styles.section}>
+                    <Text variant="titleMedium" style={styles.sectionTitle}>Photos</Text>
+                    <View style={styles.photoList}>
+                        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                            <TouchableOpacity style={[styles.addImageButton, { borderColor: theme.colors.primary }]} onPress={handlePickImages}>
+                                <LucideCamera size={32} color={theme.colors.primary} />
+                                <Text variant="bodySmall" style={{ color: theme.colors.primary }}>Add</Text>
+                            </TouchableOpacity>
+
+                            {images.map((img, index) => (
+                                <View key={index} style={styles.photoWrapper}>
+                                    <ExpoImage source={{ uri: img.isExisting ? img.imageUrl : img.uri }} style={styles.photoThumbnail} />
+                                    <TouchableOpacity style={styles.removePhotoBtn} onPress={() => removeImage(index)}>
+                                        <LucideX size={14} color="white" />
+                                    </TouchableOpacity>
+                                </View>
+                            ))}
+                        </ScrollView>
+                    </View>
+                </View>
+
+                <View style={styles.section}>
+                    <Text variant="titleMedium" style={styles.sectionTitle}>Product Details</Text>
+                    <TextInput label="Product Name" value={name} onChangeText={setName} mode="outlined" style={styles.input} outlineStyle={{ borderRadius: 12 }} />
+                    <TextInput label="Description" value={description} onChangeText={setDescription} mode="outlined" style={styles.input} multiline numberOfLines={4} outlineStyle={{ borderRadius: 12 }} />
+                    <View style={styles.row}>
+                        <TextInput label="Price (PHP)" value={price} onChangeText={setPrice} mode="outlined" style={[styles.input, styles.halfInput]} keyboardType="numeric" outlineStyle={{ borderRadius: 12 }} />
+                        <TextInput label="Stock Quantity" value={stock} onChangeText={setStock} mode="outlined" style={[styles.input, styles.halfInput]} keyboardType="numeric" outlineStyle={{ borderRadius: 12 }} />
+                    </View>
+                </View>
+
+                <View style={styles.section}>
+                    <Text variant="titleMedium" style={styles.sectionTitle}>Category</Text>
+                    <View style={styles.categoryGrid}>
+                        {Array.isArray(categoriesList) && categoriesList.map((cat: Category) => (
+                            <TouchableOpacity
+                                key={cat._id}
+                                style={[styles.categoryButton, category === cat._id && { backgroundColor: theme.colors.primaryContainer, borderColor: theme.colors.primary }]}
+                                onPress={() => setCategory(cat._id)}
+                            >
+                                <Text variant="bodyMedium" style={[styles.categoryText, category === cat._id && { color: theme.colors.primary, fontWeight: 'bold' }]}>
+                                    {cat.name}
+                                </Text>
+                            </TouchableOpacity>
+                        ))}
+                    </View>
+                </View>
+
+                <View style={styles.section}>
+                    <Text variant="titleMedium" style={styles.sectionTitle}>Location</Text>
+                    <TextInput label="City / Municipality" value={location} onChangeText={setLocation} mode="outlined" style={styles.input} outlineStyle={{ borderRadius: 12 }} />
+                </View>
+
+                {error && <HelperText type="error" visible={true} style={styles.error}>{error}</HelperText>}
+
+                <Button mode="contained" onPress={handleSubmit} loading={saving} disabled={saving} style={styles.submitButton} contentStyle={styles.submitButtonContent}>
+                    Save Changes
+                </Button>
+                <View style={{ height: insets.bottom + 20 }} />
+            </ScrollView>
+        </View>
+    );
+}
+
+const styles = StyleSheet.create({
+    container: { flex: 1, backgroundColor: '#F8FAFC' },
+    loadingContainer: { justifyContent: 'center', alignItems: 'center' },
+    header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 15, elevation: 2 },
+    headerTitle: { fontWeight: 'bold', color: '#1E293B' },
+    backButton: { padding: 8 },
+    scrollView: { flex: 1 },
+    scrollContent: { padding: 16 },
+    section: { marginBottom: 24 },
+    sectionTitle: { fontWeight: '600', color: '#1E293B', marginBottom: 12 },
+    addImageButton: { width: 100, height: 100, borderRadius: 12, borderWidth: 2, borderStyle: 'dashed', justifyContent: 'center', alignItems: 'center', gap: 4 },
+    photoList: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
+    photoWrapper: { position: 'relative', marginLeft: 10 },
+    photoThumbnail: { width: 100, height: 100, borderRadius: 12, borderWidth: 1, borderColor: '#E2E8F0' },
+    removePhotoBtn: { position: 'absolute', top: -8, right: -8, backgroundColor: '#EF4444', borderRadius: 12, width: 24, height: 24, justifyContent: 'center', alignItems: 'center' },
+    input: { marginBottom: 12, backgroundColor: 'white' },
+    row: { flexDirection: 'row', gap: 12 },
+    halfInput: { flex: 1 },
+    categoryGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+    categoryButton: { paddingVertical: 12, paddingHorizontal: 18, borderRadius: 20, backgroundColor: 'white', borderWidth: 1, borderColor: '#E2E8F0' },
+    categoryText: { color: '#64748B', fontSize: 15 },
+    error: { marginBottom: 8 },
+    submitButton: { borderRadius: 12, marginTop: 8 },
+    submitButtonContent: { paddingVertical: 8 },
+});

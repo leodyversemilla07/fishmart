@@ -1,0 +1,364 @@
+import { api } from '@/convex/_generated/api';
+import { useQuery } from 'convex/react';
+import { router, useLocalSearchParams } from 'expo-router';
+import { LucideArrowLeft, LucideCalendar, LucideMessageCircle, LucideStar, LucideVerified } from 'lucide-react-native';
+import React from 'react';
+import { ActivityIndicator, FlatList, RefreshControl, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { Avatar, Button, Card, Divider, Text, useTheme } from 'react-native-paper';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+export default function SellerProfileScreen() {
+    const theme = useTheme();
+    const insets = useSafeAreaInsets();
+    const { id } = useLocalSearchParams<{ id: string }>();
+
+    // Convex Query
+    const seller = useQuery(api.users.getPublicProfile, { id: id as any });
+    const loading = seller === undefined;
+
+    if (loading) {
+        return (
+            <View style={styles.loadingContainer}>
+                <ActivityIndicator size="large" color={theme.colors.primary} />
+            </View>
+        );
+    }
+
+    if (!seller) {
+        return (
+            <View style={styles.centered}>
+                <Text>Seller not found</Text>
+                <Button onPress={() => router.back()}>Go Back</Button>
+            </View>
+        );
+    }
+
+    const joinDate = new Date(seller._creationTime).toLocaleDateString();
+
+    const renderHeader = () => (
+        <View style={styles.headerContent}>
+            <View style={styles.sellerBasicInfo}>
+                <Avatar.Image
+                    size={80}
+                    source={{ uri: seller.shopLogo || 'https://images.unsplash.com/photo-1522069169874-c58ec4b76be5?w=200' }}
+                    style={styles.avatar}
+                />
+                <View style={styles.nameSection}>
+                    <View style={styles.shopNameRow}>
+                        <Text variant="headlineSmall" style={styles.shopName}>{seller.shopName || 'Shop Name'}</Text>
+                        {seller.isVerified && <LucideVerified size={20} color="#0061A4" fill="#E0F2FE" />}
+                    </View>
+                    <Text variant="bodyMedium" style={styles.sellerRealName}>{seller.firstName} {seller.lastName}</Text>
+                </View>
+            </View>
+
+            <View style={styles.statsRow}>
+                <View style={styles.statItem}>
+                    <Text variant="titleLarge" style={styles.statValue}>{seller.averageRating.toFixed(1)}</Text>
+                    <View style={styles.ratingStars}>
+                        <LucideStar size={12} color="#FFB800" fill="#FFB800" />
+                        <Text variant="labelSmall" style={styles.statLabel}>Rating</Text>
+                    </View>
+                </View>
+                <Divider style={styles.verticalDivider} />
+                <View style={styles.statItem}>
+                    <Text variant="titleLarge" style={styles.statValue}>{seller.reviewCount}</Text>
+                    <Text variant="labelSmall" style={styles.statLabel}>Reviews</Text>
+                </View>
+                <Divider style={styles.verticalDivider} />
+                <View style={styles.statItem}>
+                    <Text variant="titleLarge" style={styles.statValue}>{seller._count?.products || 0}</Text>
+                    <Text variant="labelSmall" style={styles.statLabel}>Items</Text>
+                </View>
+            </View>
+
+            <View style={styles.infoSection}>
+                <View style={styles.infoItem}>
+                    <LucideCalendar size={16} color="#64748B" />
+                    <Text variant="bodySmall" style={styles.infoText}>Joined {joinDate}</Text>
+                </View>
+                {seller.shopDescription && (
+                    <Text variant="bodyMedium" style={styles.description}>
+                        {seller.shopDescription}
+                    </Text>
+                )}
+            </View>
+
+            <View style={styles.actionButtons}>
+                <Button
+                    mode="contained"
+                    icon={() => <LucideMessageCircle size={18} color="white" />}
+                    style={styles.chatButton}
+                    onPress={() => {
+                        // Start chat logic - assuming we find or create a conversation
+                        // For now we just navigate to chat if it exists or messages
+                        router.push('/(tabs)/messages');
+                    }}
+                >
+                    Chat with Seller
+                </Button>
+            </View>
+
+            <Divider style={styles.sectionDivider} />
+            <Text variant="titleMedium" style={styles.sectionTitle}>Listings</Text>
+        </View>
+    );
+
+    const renderProductItem = ({ item }: { item: any }) => (
+        <Card
+            style={styles.productCard}
+            onPress={() => router.push(`/product/${item._id}`)}
+        >
+            <Card.Cover source={{ uri: item.images?.[0]?.imageUrl || 'https://picsum.photos/seed/fish/400/300' }} />
+            <Card.Content style={styles.productContent}>
+                <Text variant="titleSmall" numberOfLines={1}>{item.name}</Text>
+                <Text variant="titleMedium" style={styles.price}>₱{item.price.toLocaleString()}</Text>
+            </Card.Content>
+        </Card>
+    );
+
+    const renderReviewItem = (review: any) => (
+        <View key={review._id} style={styles.reviewItem}>
+            <View style={styles.reviewHeader}>
+                <Text variant="labelLarge">{review.user?.firstName} {review.user?.lastName}</Text>
+                <View style={styles.ratingRow}>
+                    <LucideStar size={12} color="#FFB800" fill="#FFB800" />
+                    <Text variant="labelSmall">{review.rating}</Text>
+                </View>
+            </View>
+            <Text variant="bodySmall" style={styles.reviewComment}>{review.comment}</Text>
+            <Text variant="labelSmall" style={styles.reviewProduct}>on {review.product?.name}</Text>
+        </View>
+    );
+
+    return (
+        <View style={styles.container}>
+            <View style={[styles.navHeader, { paddingTop: insets.top + 10 }]}>
+                <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+                    <LucideArrowLeft size={24} color="black" />
+                </TouchableOpacity>
+                <Text variant="titleLarge" style={styles.navTitle}>Seller Profile</Text>
+                <View style={{ width: 40 }} />
+            </View>
+
+            <FlatList
+                data={seller.products}
+                keyExtractor={item => item._id}
+                renderItem={renderProductItem}
+                numColumns={2}
+                ListHeaderComponent={renderHeader}
+                columnWrapperStyle={styles.productRow}
+                contentContainerStyle={styles.listContent}
+                refreshControl={
+                    <RefreshControl refreshing={false} onRefresh={() => { }} />
+                }
+                ListFooterComponent={() => (
+                    <View style={styles.footer}>
+                        <Divider style={styles.sectionDivider} />
+                        <View style={styles.reviewsSectionHeader}>
+                            <Text variant="titleMedium" style={styles.sectionTitle}>Recent Reviews</Text>
+                            <Button
+                                mode="text"
+                                compact
+                                onPress={() => router.push(`/reviews/seller/${id}`)}
+                            >
+                                See All
+                            </Button>
+                        </View>
+                        {seller.recentReviews?.length > 0 ? (
+                            seller.recentReviews.map(renderReviewItem)
+                        ) : (
+                            <Text variant="bodySmall" style={styles.emptyReviews}>No reviews yet.</Text>
+                        )}
+                        <View style={{ height: insets.bottom + 40 }} />
+                    </View>
+                )}
+            />
+        </View>
+    );
+}
+
+const styles = StyleSheet.create({
+    container: {
+        flex: 1,
+        backgroundColor: 'white',
+    },
+    centered: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    loadingContainer: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    navHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingHorizontal: 16,
+        paddingBottom: 15,
+        backgroundColor: 'white',
+        borderBottomWidth: 1,
+        borderBottomColor: '#F1F5F9',
+    },
+    navTitle: {
+        fontWeight: 'bold',
+    },
+    backButton: {
+        padding: 8,
+    },
+    listContent: {
+        padding: 16,
+    },
+    headerContent: {
+        marginBottom: 20,
+    },
+    sellerBasicInfo: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginBottom: 20,
+    },
+    avatar: {
+        backgroundColor: '#F1F5F9',
+    },
+    nameSection: {
+        marginLeft: 16,
+        flex: 1,
+    },
+    shopNameRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+    },
+    shopName: {
+        fontWeight: 'bold',
+        color: '#1E293B',
+    },
+    sellerRealName: {
+        color: '#64748B',
+    },
+    statsRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        backgroundColor: '#F8FAFC',
+        padding: 16,
+        borderRadius: 12,
+        marginBottom: 20,
+    },
+    statItem: {
+        flex: 1,
+        alignItems: 'center',
+    },
+    statValue: {
+        fontWeight: 'bold',
+        color: '#1E293B',
+    },
+    statLabel: {
+        color: '#64748B',
+        marginTop: 2,
+    },
+    ratingStars: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+    },
+    verticalDivider: {
+        width: 1,
+        height: '80%',
+        backgroundColor: '#CBD5E1',
+        alignSelf: 'center',
+    },
+    infoSection: {
+        marginBottom: 20,
+    },
+    infoItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        marginBottom: 8,
+    },
+    infoText: {
+        color: '#64748B',
+    },
+    description: {
+        color: '#334155',
+        lineHeight: 22,
+    },
+    actionButtons: {
+        marginBottom: 20,
+    },
+    chatButton: {
+        borderRadius: 12,
+    },
+    sectionDivider: {
+        marginVertical: 10,
+        backgroundColor: '#F1F5F9',
+    },
+    sectionTitle: {
+        fontWeight: 'bold',
+        color: '#1E293B',
+        marginBottom: 12,
+    },
+    productRow: {
+        justifyContent: 'space-between',
+        marginBottom: 16,
+    },
+    productCard: {
+        width: '48%',
+        borderRadius: 12,
+        overflow: 'hidden',
+        backgroundColor: 'white',
+        borderWidth: 1,
+        borderColor: '#F1F5F9',
+        elevation: 0,
+    },
+    productContent: {
+        padding: 10,
+    },
+    price: {
+        fontWeight: 'bold',
+        color: '#0061A4',
+        marginTop: 4,
+    },
+    footer: {
+        marginTop: 20,
+    },
+    reviewsSectionHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 10,
+    },
+    reviewItem: {
+        backgroundColor: '#F8FAFC',
+        padding: 12,
+        borderRadius: 8,
+        marginBottom: 10,
+    },
+    reviewHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 4,
+    },
+    ratingRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+    },
+    reviewComment: {
+        color: '#334155',
+    },
+    reviewProduct: {
+        color: '#94A3B8',
+        marginTop: 4,
+        fontStyle: 'italic',
+    },
+    emptyReviews: {
+        textAlign: 'center',
+        color: '#94A3B8',
+        marginVertical: 20,
+    },
+});
