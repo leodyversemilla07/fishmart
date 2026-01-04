@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { internal } from "./_generated/api";
 import { mutation, query } from "./_generated/server";
 
 export const create = mutation({
@@ -52,8 +53,26 @@ export const create = mutation({
                     stock: Math.max(0, product.stock - item.quantity),
                     sales: (product.sales || 0) + item.quantity,
                 });
+
+                // Notify seller about new order
+                await ctx.runMutation(internal.notifications.create, {
+                    userId: product.sellerId,
+                    type: "NEW_ORDER",
+                    title: "New Order Received!",
+                    message: `You have a new order for ${item.productName} (x${item.quantity})`,
+                    data: { orderId, orderNumber, productId: item.productId },
+                });
             }
         }
+
+        // Notify buyer about order confirmation
+        await ctx.runMutation(internal.notifications.create, {
+            userId: args.buyerId,
+            type: "ORDER_UPDATE",
+            title: "Order Placed Successfully",
+            message: `Your order ${orderNumber} has been placed and is awaiting confirmation.`,
+            data: { orderId, orderNumber },
+        });
 
         return orderId;
     },
@@ -120,9 +139,52 @@ export const updateStatus = mutation({
     args: {
         orderId: v.id("orders"),
         status: v.union(v.literal("PENDING"), v.literal("CONFIRMED"), v.literal("PROCESSING"), v.literal("SHIPPED"), v.literal("DELIVERED"), v.literal("CANCELLED"), v.literal("REFUNDED")),
+        trackingNumber: v.optional(v.string()),
+        courier: v.optional(v.string()),
     },
     handler: async (ctx, args) => {
-        await ctx.db.patch(args.orderId, { status: args.status });
+        const order = await ctx.db.get(args.orderId);
+        if (!order) throw new Error("Order not found");
+
+        // Update status with timestamp
+        const updates: any = { status: args.status };
+        if (args.status === "CONFIRMED") updates.confirmedAt = Date.now();
+        if (args.status === "SHIPPED") updates.shippedAt = Date.now();
+        if (args.status === "DELIVERED") updates.deliveredAt = Date.now();
+        if (args.status === "CANCELLED") updates.cancelledAt = Date.now();
+
+        // Add tracking info if provided
+        if (args.trackingNumber) updates.trackingNumber = args.trackingNumber;
+        if (args.courier) updates.courier = args.courier;
+
+        await ctx.db.patch(args.orderId, updates);
+
+        // Status messages for notifications
+        const statusMessages: Record<string, { title: string; message: string }> = {
+            CONFIRMED: { title: "Order Confirmed", message: `Your order ${order.orderNumber} has been confirmed by the seller.` },
+            PROCESSING: { title: "Order Processing", message: `Your order ${order.orderNumber} is being prepared.` },
+            SHIPPED: { 
+                title: "Order Shipped", 
+                message: args.trackingNumber 
+                    ? `Your order ${order.orderNumber} has been shipped! Tracking: ${args.trackingNumber}` 
+                    : `Your order ${order.orderNumber} has been shipped!`
+            },
+            DELIVERED: { title: "Order Delivered", message: `Your order ${order.orderNumber} has been delivered. Enjoy!` },
+            CANCELLED: { title: "Order Cancelled", message: `Your order ${order.orderNumber} has been cancelled.` },
+            REFUNDED: { title: "Order Refunded", message: `Your order ${order.orderNumber} has been refunded.` },
+        };
+
+        // Notify buyer about status change
+        if (statusMessages[args.status]) {
+            await ctx.runMutation(internal.notifications.create, {
+                userId: order.buyerId,
+                type: "ORDER_UPDATE",
+                title: statusMessages[args.status].title,
+                message: statusMessages[args.status].message,
+                data: { orderId: args.orderId, orderNumber: order.orderNumber, status: args.status, trackingNumber: args.trackingNumber },
+            });
+        }
+
         return await ctx.db.get(args.orderId);
     },
 });

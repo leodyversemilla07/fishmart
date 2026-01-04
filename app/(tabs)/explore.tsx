@@ -4,13 +4,13 @@ import { useQuery } from 'convex/react';
 import { Image } from 'expo-image';
 import { router, useLocalSearchParams } from 'expo-router';
 import { LucideFilter, LucideMapPin, LucideStar, LucideX } from 'lucide-react-native';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ActivityIndicator, Dimensions, FlatList, Modal, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { Button, Chip, Divider, RadioButton, Searchbar, Text, TextInput, useTheme } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-const { width } = Dimensions.get('window');
-const CARD_WIDTH = (width - 48) / 2;
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+const CARD_WIDTH = (SCREEN_WIDTH - 48) / 2;
 
 function ProductCard({ product }: { product: Product }) {
   const theme = useTheme();
@@ -55,17 +55,40 @@ export default function ExploreScreen() {
   const params = useLocalSearchParams<{ search?: string, category?: string }>();
 
   const [searchQuery, setSearchQuery] = useState(params.search || '');
-  const [selectedCategory, setSelectedCategory] = useState(params.category || 'all');
+  const [selectedCategory, setSelectedCategory] = useState<string>(params.category || 'all');
+
+  // Sync search query from URL params when navigating from home
+  useEffect(() => {
+    if (params.search) {
+      setSearchQuery(params.search);
+    }
+  }, [params.search]);
 
   // Convex Hooks
   const dbCategories = useQuery(api.categories.list) || [];
 
-  // Note: For complex filtering, we might need a more specialized query or handle it on the client
-  // for now we'll pass search and status
+  // Find category ID from slug if passed via params
+  const categoryIdFromSlug = params.category && params.category !== 'all'
+    ? dbCategories.find((c: Category) => c.slug === params.category)?._id
+    : undefined;
+
+  // Sync category selection when navigating with category param
+  useEffect(() => {
+    if (categoryIdFromSlug) {
+      setSelectedCategory(categoryIdFromSlug);
+    }
+  }, [categoryIdFromSlug]);
+
+  // Build query args dynamically
+  const activeCategoryId = selectedCategory !== 'all' 
+    ? selectedCategory 
+    : categoryIdFromSlug;
+
   const products = useQuery(api.products.list, {
-    search: searchQuery || undefined,
-    status: "ACTIVE"
-  }) || [];
+    search: searchQuery.trim() || undefined,
+    status: "ACTIVE",
+    categoryId: activeCategoryId as any,
+  });
 
   // Filter States
   const [filterVisible, setFilterVisible] = useState(false);
@@ -89,13 +112,25 @@ export default function ExploreScreen() {
     setFilterVisible(false);
   };
 
-  const filteredProducts = products.filter((p: Product) => {
-    if (selectedCategory !== 'all' && p.categoryId !== selectedCategory) return false;
-    if (minPrice && p.price < parseFloat(minPrice)) return false;
-    if (maxPrice && p.price > parseFloat(maxPrice)) return false;
-    if (city && !p.city.toLowerCase().includes(city.toLowerCase())) return false;
-    return true;
-  });
+  // Apply client-side filters (price, city) and sorting
+  const filteredProducts = (products || [])
+    .filter((p: Product) => {
+      if (minPrice && p.price < parseFloat(minPrice)) return false;
+      if (maxPrice && p.price > parseFloat(maxPrice)) return false;
+      if (city && !p.city.toLowerCase().includes(city.toLowerCase())) return false;
+      return true;
+    })
+    .sort((a: Product, b: Product) => {
+      switch (sortBy) {
+        case 'price_low':
+          return a.price - b.price;
+        case 'price_high':
+          return b.price - a.price;
+        case 'newest':
+        default:
+          return (b._creationTime || 0) - (a._creationTime || 0);
+      }
+    });
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -106,11 +141,13 @@ export default function ExploreScreen() {
 
       <View style={styles.searchContainer}>
         <Searchbar
-          placeholder="Search..."
+          placeholder="Search aquatic pets..."
           onChangeText={setSearchQuery}
           value={searchQuery}
           style={styles.searchBar}
           inputStyle={styles.searchInput}
+          iconColor={theme.colors.primary}
+          placeholderTextColor="#94A3B8"
           elevation={0}
         />
         <TouchableOpacity
@@ -125,18 +162,34 @@ export default function ExploreScreen() {
         <Chip
           selected={selectedCategory === 'all'}
           onPress={() => setSelectedCategory('all')}
-          style={[styles.categoryChip, selectedCategory === 'all' && { backgroundColor: theme.colors.primaryContainer }]}
-          textStyle={[styles.categoryChipText, selectedCategory === 'all' && { color: theme.colors.primary, fontWeight: 'bold' }]}
+          mode="outlined"
+          showSelectedCheck={false}
+          style={[
+            styles.categoryChip,
+            selectedCategory === 'all' ? { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary } : { backgroundColor: 'white' }
+          ]}
+          textStyle={[
+            styles.categoryChipText,
+            selectedCategory === 'all' ? { color: 'white' } : { color: '#64748B' }
+          ]}
         >
-          🐟 All
+          All
         </Chip>
         {dbCategories.map((category: Category) => (
           <Chip
             key={category._id}
             selected={selectedCategory === category._id}
             onPress={() => setSelectedCategory(category._id)}
-            style={[styles.categoryChip, selectedCategory === category._id && { backgroundColor: theme.colors.primaryContainer }]}
-            textStyle={[styles.categoryChipText, selectedCategory === category._id && { color: theme.colors.primary, fontWeight: 'bold' }]}
+            mode="outlined"
+            showSelectedCheck={false}
+            style={[
+              styles.categoryChip,
+              selectedCategory === category._id ? { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary } : { backgroundColor: 'white' }
+            ]}
+            textStyle={[
+              styles.categoryChipText,
+              selectedCategory === category._id ? { color: 'white' } : { color: '#64748B' }
+            ]}
           >
             {category.name}
           </Chip>
@@ -165,10 +218,9 @@ export default function ExploreScreen() {
         />
       )}
 
-      {/* Filter Modal */}
       <Modal visible={filterVisible} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { paddingBottom: insets.bottom + 20 }]}>
+          <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
               <Text variant="titleLarge" style={styles.modalTitle}>Filters</Text>
               <TouchableOpacity onPress={() => setFilterVisible(false)}>
@@ -176,7 +228,12 @@ export default function ExploreScreen() {
               </TouchableOpacity>
             </View>
 
-            <ScrollView style={styles.modalBody}>
+            <ScrollView
+              style={styles.modalBody}
+              contentContainerStyle={{ paddingBottom: insets.bottom + 20 }}
+              showsVerticalScrollIndicator={false}
+              bounces={false}
+            >
               <Text variant="titleMedium" style={styles.filterGroupTitle}>Sort By</Text>
               <RadioButton.Group onValueChange={value => setSortBy(value)} value={sortBy}>
                 <View style={styles.radioRow}>
@@ -228,7 +285,7 @@ export default function ExploreScreen() {
               />
             </ScrollView>
 
-            <View style={styles.modalFooter}>
+            <View style={[styles.modalFooter, { paddingBottom: insets.bottom + 10 }]}>
               <Button mode="outlined" onPress={clearFilters} style={styles.footerBtn}>Clear All</Button>
               <Button mode="contained" onPress={applyFilters} style={styles.footerBtn}>Apply Filters</Button>
             </View>
@@ -267,21 +324,32 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     gap: 12,
+    alignItems: 'center',
   },
   searchBar: {
     flex: 1,
     backgroundColor: 'white',
-    borderRadius: 12,
+    borderRadius: 16,
+    height: 52,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
   },
   searchInput: {
-    fontSize: 14,
+    fontSize: 15,
+    minHeight: 0,
+    alignSelf: 'center',
   },
   filterButton: {
-    width: 48,
-    height: 48,
-    borderRadius: 12,
+    width: 52,
+    height: 52,
+    borderRadius: 16,
     justifyContent: 'center',
     alignItems: 'center',
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
   },
   categoriesContainer: {
     paddingHorizontal: 16,
@@ -289,15 +357,15 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   categoryChip: {
-    marginRight: 10,
     backgroundColor: 'white',
-    paddingVertical: 8,
-    paddingHorizontal: 4,
-    height: 44,
+    borderRadius: 12,
+    height: 40,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
   },
   categoryChipText: {
-    fontSize: 15,
-    paddingHorizontal: 4,
+    fontSize: 14,
+    fontWeight: '500',
   },
   productsContainer: {
     paddingHorizontal: 16,
@@ -370,7 +438,8 @@ const styles = StyleSheet.create({
     backgroundColor: 'white',
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    maxHeight: '80%',
+    height: SCREEN_HEIGHT * 0.8,
+    width: '100%',
   },
   modalHeader: {
     flexDirection: 'row',
@@ -385,6 +454,7 @@ const styles = StyleSheet.create({
     color: '#1E293B',
   },
   modalBody: {
+    flex: 1,
     padding: 20,
   },
   filterGroupTitle: {
@@ -424,6 +494,7 @@ const styles = StyleSheet.create({
     gap: 12,
     borderTopWidth: 1,
     borderTopColor: '#F1F5F9',
+    backgroundColor: 'white',
   },
   footerBtn: {
     flex: 1,

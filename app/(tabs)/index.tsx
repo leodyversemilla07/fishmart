@@ -1,4 +1,5 @@
 import { api } from '@/convex/_generated/api';
+import { useAuthStore } from '@/store/authStore';
 import { useCartStore } from '@/store/cartStore';
 import { useQuery } from 'convex/react';
 import { Image } from 'expo-image';
@@ -12,6 +13,7 @@ import { ActivityIndicator, Avatar, Badge, Button, Card, Searchbar, Text, useThe
 export default function HomeScreen() {
   const theme = useTheme();
   const cartCount = useCartStore((state) => state.totalItems());
+  const { convexUser } = useAuthStore();
 
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -19,8 +21,11 @@ export default function HomeScreen() {
   const categories = useQuery(api.categories.list) || [];
   const featuredProducts = useQuery(api.products.list, { status: "ACTIVE" }) || [];
 
-  // We'll need to handle unread count specifically or via a separate query
-  const unreadCount = 0; // TODO: Implement notification unread count query
+  // Fetch unread notification count
+  const unreadCount = useQuery(
+    api.notifications.getUnreadCount,
+    convexUser?._id ? { userId: convexUser._id as any } : "skip"
+  ) ?? 0;
 
   const loading = categories === undefined || featuredProducts === undefined;
   const [refreshing, setRefreshing] = useState(false);
