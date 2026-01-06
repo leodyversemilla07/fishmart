@@ -120,7 +120,7 @@ export default function CheckoutScreen() {
                                 onPress={() => setSelectedAddress(addr._id)}
                             >
                                 <View style={styles.addressInfo}>
-                                    <Text variant="titleSmall">{addr.fullName}</Text>
+                                    <Text variant="titleSmall">{`${addr.firstName} ${addr.lastName}`}</Text>
                                     <Text variant="bodySmall" style={styles.addressText}>
                                         {addr.streetAddress}, {addr.barangay}, {addr.city}, {addr.province}
                                     </Text>

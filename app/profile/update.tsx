@@ -5,7 +5,7 @@ import { useMutation, useQuery } from 'convex/react';
 import { router } from 'expo-router';
 import { LucideArrowLeft, LucideCamera, LucidePhone, LucideStore, LucideUser } from 'lucide-react-native';
 import React, { useEffect, useState } from 'react';
-import { Alert, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { ActivityIndicator, Avatar, Button, Text, TextInput, useTheme } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -21,6 +21,7 @@ export default function UpdateProfileScreen() {
     const [saving, setSaving] = useState(false);
 
     const [firstName, setFirstName] = useState('');
+    const [middleName, setMiddleName] = useState('');
     const [lastName, setLastName] = useState('');
     const [phoneNumber, setPhoneNumber] = useState('');
     const [shopName, setShopName] = useState('');
@@ -31,6 +32,7 @@ export default function UpdateProfileScreen() {
     useEffect(() => {
         if (profile) {
             setFirstName(profile.firstName || '');
+            setMiddleName(profile.middleName || '');
             setLastName(profile.lastName || '');
             setPhoneNumber(profile.phoneNumber || '');
             setShopName(profile.shopName || '');
@@ -75,6 +77,7 @@ export default function UpdateProfileScreen() {
             const updates: any = {
                 id: user._id as any,
                 firstName,
+                middleName,
                 lastName,
                 phoneNumber,
                 shopName,
@@ -106,7 +109,10 @@ export default function UpdateProfileScreen() {
     }
 
     return (
-        <View style={styles.container}>
+        <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            style={styles.container}
+        >
             <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
                 <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
                     <LucideArrowLeft size={24} color="black" />
@@ -146,6 +152,13 @@ export default function UpdateProfileScreen() {
                         label="First Name"
                         value={firstName}
                         onChangeText={setFirstName}
+                        mode="outlined"
+                        style={styles.input}
+                    />
+                    <TextInput
+                        label="Middle Name"
+                        value={middleName}
+                        onChangeText={setMiddleName}
                         mode="outlined"
                         style={styles.input}
                     />
@@ -202,7 +215,7 @@ export default function UpdateProfileScreen() {
                     Save Changes
                 </Button>
             </ScrollView>
-        </View>
+        </KeyboardAvoidingView>
     );
 }
 

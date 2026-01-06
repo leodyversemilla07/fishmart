@@ -181,7 +181,7 @@ export default function OrderDetailsScreen() {
                             <Text variant="titleMedium" style={styles.sectionTitle}>Delivery Address</Text>
                         </View>
 
-                        <Text variant="bodyMedium" style={styles.addressName}>{order.address?.fullName}</Text>
+                        <Text variant="bodyMedium" style={styles.addressName}>{`${order.address?.firstName} ${order.address?.lastName}`}</Text>
                         <Text variant="bodySmall" style={styles.addressPhone}>{order.address?.phoneNumber}</Text>
                         <Text variant="bodySmall" style={styles.addressText}>
                             {order.address?.streetAddress}, {order.address?.barangay}

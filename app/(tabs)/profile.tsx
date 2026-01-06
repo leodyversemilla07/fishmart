@@ -37,8 +37,8 @@ export default function ProfileScreen() {
         : user.firstName?.substring(0, 1) || 'U';
 
     const fullName = profile
-        ? `${profile.firstName} ${profile.lastName}`
-        : `${user.firstName} ${user.lastName}`;
+        ? `${profile.firstName} ${profile.middleName ? profile.middleName + ' ' : ''}${profile.lastName}`
+        : `${user.firstName} ${user.middleName ? user.middleName + ' ' : ''}${user.lastName}`;
 
     return (
         <ScrollView
@@ -66,7 +66,7 @@ export default function ProfileScreen() {
 
                 <View style={styles.badgeContainer}>
                     <View style={[styles.badge, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
-                        <Text style={styles.badgeText}>🐟 Member</Text>
+                        <Text style={styles.badgeText}>Member</Text>
                     </View>
                 </View>
             </View>

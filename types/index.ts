@@ -5,6 +5,7 @@ export interface User {
     _creationTime: number;
     email: string;
     firstName: string;
+    middleName?: string;
     lastName: string;
     role: "BUYER" | "SELLER" | "ADMIN";
     shopName?: string;
@@ -18,7 +19,9 @@ export interface Address {
     _id: Id<"addresses">;
     _creationTime: number;
     userId: Id<"users">;
-    fullName: string;
+    firstName: string;
+    middleName?: string;
+    lastName: string;
     phoneNumber: string;
     streetAddress: string;
     barangay: string;
@@ -65,6 +68,8 @@ export interface Product {
     images?: Array<{ imageUrl: string }>; // Joined field
     rating?: number; // Calculated/joined field
     reviews?: Array<Review>; // Joined field
+    seller?: User | null; // Joined field
+    category?: Category | null; // Joined field
 }
 
 export interface OrderItem {
@@ -128,4 +133,9 @@ export interface Review {
     productId: Id<"products">;
     rating: number;
     comment: string;
+    user?: User | null; // Joined field
+    images?: string[]; // Joined field
+    sellerResponse?: string;
+    respondedAt?: number;
+    product?: Product; // For seller reviews
 }

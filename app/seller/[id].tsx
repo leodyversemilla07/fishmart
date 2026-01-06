@@ -48,7 +48,7 @@ export default function SellerProfileScreen() {
                         <Text variant="headlineSmall" style={styles.shopName}>{seller.shopName || 'Shop Name'}</Text>
                         {seller.isVerified && <LucideVerified size={20} color="#0061A4" fill="#E0F2FE" />}
                     </View>
-                    <Text variant="bodyMedium" style={styles.sellerRealName}>{seller.firstName} {seller.lastName}</Text>
+                    <Text variant="bodyMedium" style={styles.sellerRealName}>{seller.firstName} {seller.middleName ? seller.middleName + ' ' : ''}{seller.lastName}</Text>
                 </View>
             </View>
 
@@ -120,7 +120,7 @@ export default function SellerProfileScreen() {
     const renderReviewItem = (review: any) => (
         <View key={review._id} style={styles.reviewItem}>
             <View style={styles.reviewHeader}>
-                <Text variant="labelLarge">{review.user?.firstName} {review.user?.lastName}</Text>
+                <Text variant="labelLarge">{review.user?.firstName} {review.user?.middleName ? review.user?.middleName + ' ' : ''}{review.user?.lastName}</Text>
                 <View style={styles.ratingRow}>
                     <LucideStar size={12} color="#FFB800" fill="#FFB800" />
                     <Text variant="labelSmall">{review.rating}</Text>

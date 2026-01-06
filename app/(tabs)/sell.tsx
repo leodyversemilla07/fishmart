@@ -5,10 +5,11 @@ import { Category } from '@/types';
 import { pickImage, uploadImage } from '@/utils/upload';
 import { useMutation, useQuery } from 'convex/react';
 import { Image as ExpoImage } from 'expo-image';
+import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
-import { LucideCamera } from 'lucide-react-native';
-import { useState } from 'react';
-import { Alert, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { LucideCamera, LucideChevronRight, LucideMapPin, LucideSearch, LucideX } from 'lucide-react-native';
+import { useEffect, useState } from 'react';
+import { Alert, FlatList, Modal, ActivityIndicator as RNActivityIndicator, TextInput as RNTextInput, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { Button, HelperText, Text, TextInput, useTheme } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -26,13 +27,74 @@ export default function SellScreen() {
     const [price, setPrice] = useState('');
     const [stock, setStock] = useState('1');
     const [category, setCategory] = useState('');
-    const [location, setLocation] = useState('');
 
     // Image state
-    const [images, setImages] = useState<any[]>([]); // { uri, base64? }
+    const [images, setImages] = useState<ImagePicker.ImagePickerAsset[]>([]);
 
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+
+    // Location State
+    const [provinces, setProvinces] = useState<any[]>([]);
+    const [cities, setCities] = useState<any[]>([]);
+    const [selectedProvince, setSelectedProvince] = useState<any>(null);
+    const [selectedCity, setSelectedCity] = useState<any>(null);
+    const [locationModalVisible, setLocationModalVisible] = useState(false);
+    const [modalType, setModalType] = useState<'province' | 'city'>('province');
+    const [searchQuery, setSearchQuery] = useState('');
+    const [loadingLocations, setLoadingLocations] = useState(false);
+
+    useEffect(() => {
+        fetchProvinces();
+    }, []);
+
+    const fetchProvinces = async () => {
+        try {
+            setLoadingLocations(true);
+            const response = await fetch('https://psgc.gitlab.io/api/provinces/');
+            const data = await response.json();
+            // Sort alphabetically
+            const sorted = data.sort((a: any, b: any) => a.name.localeCompare(b.name));
+            setProvinces(sorted);
+        } catch (err) {
+            console.error('Failed to fetch provinces:', err);
+        } finally {
+            setLoadingLocations(false);
+        }
+    };
+
+    const fetchCities = async (provinceCode: string) => {
+        try {
+            setLoadingLocations(true);
+            const response = await fetch(`https://psgc.gitlab.io/api/provinces/${provinceCode}/cities-municipalities/`);
+            const data = await response.json();
+            const sorted = data.sort((a: any, b: any) => a.name.localeCompare(b.name));
+            setCities(sorted);
+        } catch (err) {
+            console.error('Failed to fetch cities:', err);
+        } finally {
+            setLoadingLocations(false);
+        }
+    };
+
+    const handleSelectProvince = (province: any) => {
+        setSelectedProvince(province);
+        setSelectedCity(null);
+        setCities([]);
+        fetchCities(province.code);
+        setLocationModalVisible(false);
+        setSearchQuery('');
+    };
+
+    const handleSelectCity = (city: any) => {
+        setSelectedCity(city);
+        setLocationModalVisible(false);
+        setSearchQuery('');
+    };
+
+    const filteredLocations = (modalType === 'province' ? provinces : cities).filter(loc =>
+        loc.name.toLowerCase().includes(searchQuery.toLowerCase())
+    );
 
     const handlePickImages = async () => {
         try {
@@ -70,8 +132,12 @@ export default function SellScreen() {
             setError('Please select a category');
             return;
         }
-        if (!location.trim()) {
-            setError('Please enter your location');
+        if (!selectedProvince) {
+            setError('Please select a province');
+            return;
+        }
+        if (!selectedCity) {
+            setError('Please select a city or municipality');
             return;
         }
         if (!isAuthenticated || !convexUser) {
@@ -89,10 +155,8 @@ export default function SellScreen() {
             // Upload images first
             const uploadedUrls: string[] = [];
             for (const img of images) {
-                if (img.base64) {
-                    const url = await uploadImage(img.uri, img.base64, 'products', 'listings');
-                    uploadedUrls.push(url);
-                }
+                const url = await uploadImage(img.uri, img.base64, 'products', 'listings');
+                uploadedUrls.push(url);
             }
 
             // Call Convex mutation
@@ -103,13 +167,13 @@ export default function SellScreen() {
                 price: parseFloat(price),
                 stock: parseInt(stock) || 1,
                 categoryId: category as Id<"categories">,
-                city: location.trim(),
-                province: location.trim(),
+                city: selectedCity.name,
+                province: selectedProvince.name,
                 images: uploadedUrls,
             });
 
             Alert.alert(
-                'Success! 🎉',
+                'Success',
                 'Your product has been listed successfully!',
                 [
                     {
@@ -121,7 +185,8 @@ export default function SellScreen() {
                             setPrice('');
                             setStock('1');
                             setCategory('');
-                            setLocation('');
+                            setSelectedProvince(null);
+                            setSelectedCity(null);
                             setImages([]);
                             router.push('/(tabs)/explore');
                         },
@@ -157,15 +222,17 @@ export default function SellScreen() {
                     <Text variant="titleMedium" style={styles.sectionTitle}>Photos</Text>
                     <View style={styles.photoList}>
                         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                            <TouchableOpacity
-                                style={[styles.addImageButton, { borderColor: theme.colors.primary }]}
-                                onPress={handlePickImages}
-                            >
-                                <LucideCamera size={32} color={theme.colors.primary} />
-                                <Text variant="bodySmall" style={{ color: theme.colors.primary }}>
-                                    Add
-                                </Text>
-                            </TouchableOpacity>
+                            <View style={styles.photoWrapper}>
+                                <TouchableOpacity
+                                    style={[styles.addImageButton, { borderColor: theme.colors.primary }]}
+                                    onPress={handlePickImages}
+                                >
+                                    <LucideCamera size={32} color={theme.colors.primary} />
+                                    <Text variant="bodySmall" style={{ color: theme.colors.primary }}>
+                                        Add
+                                    </Text>
+                                </TouchableOpacity>
+                            </View>
 
                             {images.map((img, index) => (
                                 <View key={index} style={styles.photoWrapper}>
@@ -173,8 +240,9 @@ export default function SellScreen() {
                                     <TouchableOpacity
                                         style={styles.removePhotoBtn}
                                         onPress={() => removeImage(index)}
+                                        activeOpacity={0.8}
                                     >
-                                        <Text style={{ color: 'white', fontSize: 10 }}>X</Text>
+                                        <LucideX size={14} color="white" />
                                     </TouchableOpacity>
                                 </View>
                             ))}
@@ -268,15 +336,49 @@ export default function SellScreen() {
                 {/* Location */}
                 <View style={styles.section}>
                     <Text variant="titleMedium" style={styles.sectionTitle}>Location</Text>
-                    <TextInput
-                        label="City / Municipality"
-                        value={location}
-                        onChangeText={setLocation}
-                        mode="outlined"
-                        style={styles.input}
-                        placeholder="e.g. Quezon City"
-                        outlineStyle={{ borderRadius: 12 }}
-                    />
+
+                    <TouchableOpacity
+                        style={[styles.selectorButton, !selectedProvince && { borderColor: '#CBD5E1' }]}
+                        onPress={() => {
+                            setModalType('province');
+                            setLocationModalVisible(true);
+                        }}
+                    >
+                        <View style={styles.selectorMain}>
+                            <LucideMapPin size={20} color={selectedProvince ? theme.colors.primary : '#64748B'} />
+                            <View style={styles.selectorTextContent}>
+                                <Text style={styles.selectorLabel}>Province</Text>
+                                <Text style={[styles.selectorValue, !selectedProvince && { color: '#94A3B8' }]}>
+                                    {selectedProvince ? selectedProvince.name : 'Select Province'}
+                                </Text>
+                            </View>
+                        </View>
+                        <LucideChevronRight size={20} color="#94A3B8" />
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                        style={[
+                            styles.selectorButton,
+                            !selectedCity && { borderColor: '#CBD5E1' },
+                            !selectedProvince && { opacity: 0.5 }
+                        ]}
+                        disabled={!selectedProvince}
+                        onPress={() => {
+                            setModalType('city');
+                            setLocationModalVisible(true);
+                        }}
+                    >
+                        <View style={styles.selectorMain}>
+                            <LucideMapPin size={20} color={selectedCity ? theme.colors.primary : '#64748B'} />
+                            <View style={styles.selectorTextContent}>
+                                <Text style={styles.selectorLabel}>City / Municipality</Text>
+                                <Text style={[styles.selectorValue, !selectedCity && { color: '#94A3B8' }]}>
+                                    {selectedCity ? selectedCity.name : 'Select City / Municipality'}
+                                </Text>
+                            </View>
+                        </View>
+                        <LucideChevronRight size={20} color="#94A3B8" />
+                    </TouchableOpacity>
                 </View>
 
                 {/* Error */}
@@ -301,6 +403,64 @@ export default function SellScreen() {
                 {/* Spacer for tab bar */}
                 <View style={{ height: 0 }} />
             </ScrollView>
+
+            {/* Location Selector Modal */}
+            <Modal visible={locationModalVisible} animationType="slide" transparent>
+                <View style={styles.modalOverlay}>
+                    <View style={styles.modalContent}>
+                        <View style={styles.modalHeader}>
+                            <Text variant="titleLarge" style={styles.modalTitle}>
+                                Select {modalType === 'province' ? 'Province' : 'City'}
+                            </Text>
+                            <TouchableOpacity onPress={() => {
+                                setLocationModalVisible(false);
+                                setSearchQuery('');
+                            }}>
+                                <LucideX size={24} color="#1E293B" />
+                            </TouchableOpacity>
+                        </View>
+
+                        <View style={styles.modalSearchContainer}>
+                            <LucideSearch size={20} color="#64748B" />
+                            <RNTextInput
+                                placeholder={`Search ${modalType}...`}
+                                value={searchQuery}
+                                onChangeText={setSearchQuery}
+                                style={styles.modalSearchInput}
+                                placeholderTextColor="#94A3B8"
+                            />
+                        </View>
+
+                        {loadingLocations ? (
+                            <View style={styles.modalLoading}>
+                                <RNActivityIndicator size="large" color={theme.colors.primary} />
+                            </View>
+                        ) : (
+                            <FlatList
+                                data={filteredLocations}
+                                keyExtractor={(item) => item.code}
+                                renderItem={({ item }) => (
+                                    <TouchableOpacity
+                                        style={styles.locationItem}
+                                        onPress={() => modalType === 'province' ? handleSelectProvince(item) : handleSelectCity(item)}
+                                    >
+                                        <Text style={styles.locationItemText}>{item.name}</Text>
+                                        {(modalType === 'province' ? selectedProvince?.code : selectedCity?.code) === item.code && (
+                                            <View style={[styles.selectedDot, { backgroundColor: theme.colors.primary }]} />
+                                        )}
+                                    </TouchableOpacity>
+                                )}
+                                contentContainerStyle={styles.modalList}
+                                ListEmptyComponent={
+                                    <View style={styles.emptyContainer}>
+                                        <Text>No results found</Text>
+                                    </View>
+                                }
+                            />
+                        )}
+                    </View>
+                </View>
+            </Modal>
         </View>
     );
 }
@@ -315,6 +475,7 @@ const styles = StyleSheet.create({
     },
     scrollContent: {
         padding: 16,
+        paddingBottom: 40,
     },
     header: {
         marginBottom: 24,
@@ -394,11 +555,13 @@ const styles = StyleSheet.create({
     },
     photoList: {
         flexDirection: 'row',
-        alignItems: 'center',
+        alignItems: 'flex-start',
     },
     photoWrapper: {
         position: 'relative',
-        marginRight: 10,
+        marginRight: 16,
+        paddingTop: 8,
+        paddingRight: 8,
     },
     photoThumbnail: {
         width: 100,
@@ -409,13 +572,127 @@ const styles = StyleSheet.create({
     },
     removePhotoBtn: {
         position: 'absolute',
-        top: -8,
-        right: -8,
+        top: 0,
+        right: 0,
         backgroundColor: '#EF4444',
         borderRadius: 12,
         width: 24,
         height: 24,
         justifyContent: 'center',
+        alignItems: 'center',
+        zIndex: 10,
+        elevation: 5,
+        borderWidth: 2,
+        borderColor: 'white',
+    },
+    selectorButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: 'white',
+        borderWidth: 1,
+        borderColor: '#E2E8F0',
+        borderRadius: 12,
+        paddingHorizontal: 16,
+        paddingVertical: 12,
+        marginBottom: 12,
+        minHeight: 64,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.05,
+        shadowRadius: 2,
+        elevation: 1,
+    },
+    selectorMain: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 14,
+        flex: 1,
+    },
+    selectorTextContent: {
+        flex: 1,
+        justifyContent: 'center',
+    },
+    selectorLabel: {
+        fontSize: 11,
+        color: '#94A3B8',
+        fontWeight: '600',
+        textTransform: 'uppercase',
+        letterSpacing: 0.5,
+        marginBottom: 2,
+    },
+    selectorValue: {
+        fontSize: 16,
+        color: '#1E293B',
+        fontWeight: '600',
+    },
+    modalOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.5)',
+        justifyContent: 'flex-end',
+    },
+    modalContent: {
+        backgroundColor: 'white',
+        borderTopLeftRadius: 24,
+        borderTopRightRadius: 24,
+        height: '80%',
+        width: '100%',
+    },
+    modalHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        padding: 20,
+        borderBottomWidth: 1,
+        borderBottomColor: '#F1F5F9',
+    },
+    modalTitle: {
+        fontWeight: 'bold',
+        color: '#1E293B',
+    },
+    modalSearchContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 16,
+        paddingVertical: 12,
+        backgroundColor: '#F1F5F9',
+        margin: 16,
+        borderRadius: 12,
+        gap: 12,
+    },
+    modalSearchInput: {
+        flex: 1,
+        fontSize: 16,
+        color: '#1E293B',
+        padding: 0,
+        height: 24,
+    },
+    modalList: {
+        paddingBottom: 40,
+    },
+    locationItem: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        padding: 20,
+        borderBottomWidth: 1,
+        borderBottomColor: '#F1F5F9',
+    },
+    locationItemText: {
+        fontSize: 16,
+        color: '#1E293B',
+    },
+    selectedDot: {
+        width: 8,
+        height: 8,
+        borderRadius: 4,
+    },
+    modalLoading: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    emptyContainer: {
+        padding: 40,
         alignItems: 'center',
     },
 });

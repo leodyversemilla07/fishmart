@@ -8,6 +8,7 @@ export interface ConvexUser {
     id?: string; // mapping for compatibility
     email: string;
     firstName: string;
+    middleName?: string;
     lastName: string;
     role: "BUYER" | "SELLER" | "ADMIN";
     shopName?: string;

@@ -6,7 +6,7 @@ import { useMutation, useQuery } from 'convex/react';
 import { router, useLocalSearchParams } from 'expo-router';
 import { LucideArrowLeft } from 'lucide-react-native';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { Button, Checkbox, HelperText, Text, TextInput, useTheme } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -22,7 +22,9 @@ export default function AddressFormScreen() {
     const createAddressMutation = useMutation(api.users.addAddress);
     const updateAddressMutation = useMutation(api.users.updateAddress);
 
-    const [fullName, setFullName] = useState('');
+    const [firstName, setFirstName] = useState('');
+    const [middleName, setMiddleName] = useState('');
+    const [lastName, setLastName] = useState('');
     const [phoneNumber, setPhoneNumber] = useState('');
     const [streetAddress, setStreetAddress] = useState('');
     const [barangay, setBarangay] = useState('');
@@ -36,7 +38,9 @@ export default function AddressFormScreen() {
 
     useEffect(() => {
         if (address) {
-            setFullName(address.fullName || '');
+            setFirstName(address.firstName || '');
+            setMiddleName(address.middleName || '');
+            setLastName(address.lastName || '');
             setPhoneNumber(address.phoneNumber || '');
             setStreetAddress(address.streetAddress || '');
             setBarangay(address.barangay || '');
@@ -48,7 +52,7 @@ export default function AddressFormScreen() {
     }, [address]);
 
     const handleSubmit = async () => {
-        if (!fullName.trim() || !phoneNumber.trim() || !streetAddress.trim() || !barangay.trim() || !city.trim() || !province.trim()) {
+        if (!firstName.trim() || !lastName.trim() || !phoneNumber.trim() || !streetAddress.trim() || !barangay.trim() || !city.trim() || !province.trim()) {
             setError('Please fill in all required fields');
             return;
         }
@@ -64,7 +68,9 @@ export default function AddressFormScreen() {
 
             const addressData = {
                 userId: convexUser._id as Id<"users">,
-                fullName: fullName.trim(),
+                firstName: firstName.trim(),
+                middleName: middleName.trim() || undefined,
+                lastName: lastName.trim(),
                 phoneNumber: phoneNumber.trim(),
                 streetAddress: streetAddress.trim(),
                 barangay: barangay.trim(),
@@ -106,7 +112,10 @@ export default function AddressFormScreen() {
     }
 
     return (
-        <View style={[styles.container, { paddingTop: insets.top }]}>
+        <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            style={[styles.container, { paddingTop: insets.top }]}
+        >
             <View style={[styles.header, { backgroundColor: theme.colors.elevation.level2 }]}>
                 <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
                     <LucideArrowLeft size={24} color="#1E293B" />
@@ -120,7 +129,11 @@ export default function AddressFormScreen() {
             <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
                 <View style={styles.section}>
                     <Text variant="titleMedium" style={styles.sectionTitle}>Contact Information</Text>
-                    <TextInput label="Full Name" value={fullName} onChangeText={setFullName} mode="outlined" style={styles.input} outlineStyle={{ borderRadius: 12 }} />
+                    <View style={styles.row}>
+                        <TextInput label="First Name" value={firstName} onChangeText={setFirstName} mode="outlined" style={[styles.input, styles.halfInput]} outlineStyle={{ borderRadius: 12 }} />
+                        <TextInput label="Last Name" value={lastName} onChangeText={setLastName} mode="outlined" style={[styles.input, styles.halfInput]} outlineStyle={{ borderRadius: 12 }} />
+                    </View>
+                    <TextInput label="Middle Name (Optional)" value={middleName} onChangeText={setMiddleName} mode="outlined" style={styles.input} outlineStyle={{ borderRadius: 12 }} />
                     <TextInput label="Phone Number" value={phoneNumber} onChangeText={setPhoneNumber} mode="outlined" style={styles.input} keyboardType="phone-pad" outlineStyle={{ borderRadius: 12 }} />
                 </View>
 
@@ -147,7 +160,7 @@ export default function AddressFormScreen() {
                 </Button>
                 <View style={{ height: insets.bottom + 20 }} />
             </ScrollView>
-        </View>
+        </KeyboardAvoidingView>
     );
 }
 

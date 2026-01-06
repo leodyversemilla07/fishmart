@@ -24,6 +24,7 @@ export const createUser = internalMutation({
         email: v.string(),
         password: v.string(),
         firstName: v.string(),
+        middleName: v.optional(v.string()),
         lastName: v.string(),
         role: v.union(v.literal("BUYER"), v.literal("SELLER")),
     },
@@ -32,6 +33,7 @@ export const createUser = internalMutation({
             email: args.email,
             password: args.password,
             firstName: args.firstName,
+            middleName: args.middleName,
             lastName: args.lastName,
             role: args.role,
             isActive: true,
@@ -83,6 +85,7 @@ export const updateProfile = mutation({
     args: {
         id: v.id("users"),
         firstName: v.optional(v.string()),
+        middleName: v.optional(v.string()),
         lastName: v.optional(v.string()),
         phoneNumber: v.optional(v.string()),
         shopName: v.optional(v.string()),
@@ -109,7 +112,9 @@ export const listAddresses = query({
 export const addAddress = mutation({
     args: {
         userId: v.id("users"),
-        fullName: v.string(),
+        firstName: v.string(),
+        middleName: v.optional(v.string()),
+        lastName: v.string(),
         phoneNumber: v.string(),
         streetAddress: v.string(),
         barangay: v.string(),
@@ -170,7 +175,9 @@ export const getAddress = query({
 export const updateAddress = mutation({
     args: {
         id: v.id("addresses"),
-        fullName: v.optional(v.string()),
+        firstName: v.optional(v.string()),
+        middleName: v.optional(v.string()),
+        lastName: v.optional(v.string()),
         phoneNumber: v.optional(v.string()),
         streetAddress: v.optional(v.string()),
         barangay: v.optional(v.string()),

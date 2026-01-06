@@ -6,6 +6,7 @@ export default defineSchema({
         email: v.string(),
         phoneNumber: v.optional(v.string()),
         firstName: v.string(),
+        middleName: v.optional(v.string()),
         lastName: v.string(),
         role: v.union(v.literal("BUYER"), v.literal("SELLER"), v.literal("ADMIN")),
         shopName: v.optional(v.string()),
@@ -20,7 +21,9 @@ export default defineSchema({
 
     addresses: defineTable({
         userId: v.id("users"),
-        fullName: v.string(),
+        firstName: v.string(),
+        middleName: v.optional(v.string()),
+        lastName: v.string(),
         phoneNumber: v.string(),
         streetAddress: v.string(),
         barangay: v.string(),

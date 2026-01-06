@@ -18,12 +18,12 @@ import {
     ActivityIndicator,
     Dimensions,
     FlatList,
-    NativeScrollEvent, // Added
-    NativeSyntheticEvent, // Added
+    NativeScrollEvent,
+    NativeSyntheticEvent,
     ScrollView,
     StyleSheet,
     TouchableOpacity,
-    View
+    View,
 } from 'react-native';
 import { Avatar, Button, Chip, Divider, Snackbar, Text, useTheme } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -85,7 +85,8 @@ export default function ProductDetailScreen() {
     const images = product.images?.length > 0
         ? product.images.map((img: { imageUrl: string }) => img.imageUrl)
         : ['https://images.unsplash.com/photo-1522069169874-c58ec4b76be5?w=800'];
-    const sellerName = product.seller?.shopName || `${product.seller?.firstName} ${product.seller?.lastName}`;
+    const sellerName = product.seller?.shopName ||
+        (product.seller ? `${product.seller.firstName} ${product.seller.middleName ? product.seller.middleName + ' ' : ''}${product.seller.lastName}` : 'Unknown Seller');
 
     const handleImageScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
         const slideIndex = Math.round(event.nativeEvent.contentOffset.x / SCREEN_WIDTH);
@@ -252,7 +253,7 @@ export default function ProductDetailScreen() {
                                 </Text>
                                 {product.seller?.isVerified && (
                                     <Chip compact style={styles.verifiedChip} textStyle={{ fontSize: 10 }}>
-                                        ✓ Verified
+                                        Verified
                                     </Chip>
                                 )}
                             </View>
@@ -305,12 +306,12 @@ export default function ProductDetailScreen() {
                                 <View style={styles.reviewHeader}>
                                     <Avatar.Text
                                         size={32}
-                                        label={review.userId?.[0] || 'U'} // Note: Should probably join with user data
+                                        label={review.user?.firstName?.[0] || 'U'}
                                         style={{ backgroundColor: theme.colors.primaryContainer }}
                                         labelStyle={{ color: theme.colors.primary, fontSize: 12 }}
                                     />
                                     <View style={styles.reviewUser}>
-                                        <Text variant="labelLarge">User</Text>
+                                        <Text variant="labelLarge">{review.user ? `${review.user.firstName} ${review.user.lastName}` : 'User'}</Text>
                                         <View style={styles.starsRow}>
                                             {[1, 2, 3, 4, 5].map((s) => (
                                                 <LucideStar

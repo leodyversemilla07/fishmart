@@ -72,7 +72,7 @@ export default function AddressesScreen() {
             <View style={styles.cardHeader}>
                 <View style={styles.nameRow}>
                     <LucideMapPin size={18} color={theme.colors.primary} />
-                    <Text variant="titleMedium" style={styles.name}>{item.fullName}</Text>
+                    <Text variant="titleMedium" style={styles.name}>{`${item.firstName} ${item.middleName ? item.middleName + ' ' : ''}${item.lastName}`}</Text>
                     {item.isDefault && (
                         <View style={[styles.defaultBadge, { backgroundColor: theme.colors.primaryContainer }]}>
                             <Text variant="labelSmall" style={{ color: theme.colors.primary }}>Default</Text>
@@ -105,7 +105,7 @@ export default function AddressesScreen() {
                     mode="text"
                     textColor={theme.colors.error}
                     compact
-                    onPress={() => handleDelete(item._id, item.fullName)}
+                    onPress={() => handleDelete(item._id, `${item.firstName} ${item.lastName}`)}
                 >
                     Delete
                 </Button>

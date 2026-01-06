@@ -24,7 +24,7 @@ export default function MessagesScreen() {
         const otherParticipant = conv.otherUser;
         if (!otherParticipant) return false;
 
-        const name = otherParticipant.shopName || `${otherParticipant.firstName} ${otherParticipant.lastName}`;
+        const name = otherParticipant.shopName || `${otherParticipant.firstName} ${otherParticipant.middleName ? otherParticipant.middleName + ' ' : ''}${otherParticipant.lastName}`;
         return name.toLowerCase().includes(searchQuery.toLowerCase());
     });
 
@@ -32,7 +32,7 @@ export default function MessagesScreen() {
         const otherParticipant = item.otherUser;
         const lastMessage = item.lastMessage;
         const date = lastMessage ? new Date(lastMessage._creationTime).toLocaleDateString() : '';
-        const name = otherParticipant?.shopName || `${otherParticipant?.firstName || 'User'} ${otherParticipant?.lastName || ''}`;
+        const name = otherParticipant?.shopName || `${otherParticipant?.firstName || 'User'} ${otherParticipant?.middleName ? otherParticipant.middleName + ' ' : ''}${otherParticipant?.lastName || ''}`;
 
         return (
             <List.Item

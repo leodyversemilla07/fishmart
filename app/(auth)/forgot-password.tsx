@@ -38,7 +38,7 @@ export default function ForgotPasswordScreen() {
                             <View style={styles.form}>
                                 <View style={styles.successContainer}>
                                     <Text variant="headlineSmall" style={styles.successTitle}>
-                                        Contact Support 📞
+                                        Contact Support
                                     </Text>
                                     <Text variant="bodyMedium" style={styles.successText}>
                                         Please contact support at support@fishmart.ph to reset your password.

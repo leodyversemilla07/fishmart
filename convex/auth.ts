@@ -35,6 +35,7 @@ export const signUp = action({
         email: v.string(),
         password: v.string(),
         firstName: v.string(),
+        middleName: v.optional(v.string()),
         lastName: v.string(),
         role: v.union(v.literal("BUYER"), v.literal("SELLER")),
     },
@@ -50,6 +51,7 @@ export const signUp = action({
             email: args.email,
             password: hashedPassword,
             firstName: args.firstName,
+            middleName: args.middleName,
             lastName: args.lastName,
             role: args.role,
         });

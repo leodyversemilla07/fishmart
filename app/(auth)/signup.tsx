@@ -4,13 +4,15 @@ import { Image } from 'expo-image';
 import { Link, router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useState } from 'react';
-import { ImageBackground, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, View } from 'react-native';
+import { Alert, ImageBackground, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, View } from 'react-native';
 import { Button, HelperText, Text, TextInput, useTheme } from 'react-native-paper';
 
 export default function SignupScreen() {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
-    const [fullName, setFullName] = useState('');
+    const [firstName, setFirstName] = useState('');
+    const [middleName, setMiddleName] = useState('');
+    const [lastName, setLastName] = useState('');
     const [loading, setLoading] = useState(false);
     const [showPassword, setShowPassword] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -19,23 +21,22 @@ export default function SignupScreen() {
     const signUpAction = useAction(api.auth.signUp);
 
     const handleSignup = async () => {
-        if (!email || !password || !fullName) {
-            setError('Please fill in all fields');
+        if (!email || !password || !firstName || !lastName) {
+            setError('Please fill in all required fields');
             return;
         }
 
         setLoading(true);
         setError(null);
 
-        const nameParts = fullName.trim().split(' ');
-        const firstName = nameParts[0];
-        const lastName = nameParts.slice(1).join(' ') || '';
+
 
         try {
             const result = await signUpAction({
                 email,
                 password,
                 firstName,
+                middleName,
                 lastName,
                 role: 'BUYER', // Default role
             });
@@ -45,7 +46,7 @@ export default function SignupScreen() {
                 return;
             }
 
-            alert('Account created! Please sign in.');
+            Alert.alert('Success', 'Account created! Please sign in.');
             router.replace('/login');
         } catch (err: any) {
             setError(err.message || 'An unexpected error occurred');
@@ -80,10 +81,29 @@ export default function SignupScreen() {
                             </View>
 
                             <View style={styles.form}>
+                                <View style={{ flexDirection: 'row', gap: 12 }}>
+                                    <TextInput
+                                        label="First Name"
+                                        value={firstName}
+                                        onChangeText={setFirstName}
+                                        mode="outlined"
+                                        style={[styles.input, { flex: 1 }]}
+                                        outlineStyle={{ borderRadius: 12 }}
+                                    />
+                                    <TextInput
+                                        label="Last Name"
+                                        value={lastName}
+                                        onChangeText={setLastName}
+                                        mode="outlined"
+                                        style={[styles.input, { flex: 1 }]}
+                                        outlineStyle={{ borderRadius: 12 }}
+                                    />
+                                </View>
+
                                 <TextInput
-                                    label="Full Name"
-                                    value={fullName}
-                                    onChangeText={setFullName}
+                                    label="Middle Name (Optional)"
+                                    value={middleName}
+                                    onChangeText={setMiddleName}
                                     mode="outlined"
                                     style={styles.input}
                                     left={<TextInput.Icon icon="account" />}

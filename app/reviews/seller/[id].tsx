@@ -56,7 +56,7 @@ export default function SellerReviewsScreen() {
                             labelStyle={{ color: theme.colors.primary }}
                         />
                         <View style={styles.userMeta}>
-                            <Text variant="titleSmall">{item.user?.firstName} {item.user?.lastName}</Text>
+                            <Text variant="titleSmall">{item.user?.firstName} {item.user?.middleName ? item.user?.middleName + ' ' : ''}{item.user?.lastName}</Text>
                             <Text variant="bodySmall" style={styles.dateText}>{date}</Text>
                         </View>
                     </View>
