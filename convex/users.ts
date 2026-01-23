@@ -23,6 +23,7 @@ export const createUser = internalMutation({
     args: {
         email: v.string(),
         password: v.string(),
+        passwordSalt: v.optional(v.string()), // Salt for secure password hashing
         firstName: v.string(),
         middleName: v.optional(v.string()),
         lastName: v.string(),
@@ -32,6 +33,7 @@ export const createUser = internalMutation({
         return await ctx.db.insert("users", {
             email: args.email,
             password: args.password,
+            passwordSalt: args.passwordSalt,
             firstName: args.firstName,
             middleName: args.middleName,
             lastName: args.lastName,

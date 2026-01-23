@@ -8,6 +8,7 @@ export const create = mutation({
         addressId: v.id("addresses"),
         items: v.array(v.object({
             productId: v.id("products"),
+            sellerId: v.id("users"), // Required for efficient seller queries
             quantity: v.number(),
             price: v.number(),
             productName: v.string(),
@@ -39,6 +40,7 @@ export const create = mutation({
             await ctx.db.insert("order_items", {
                 orderId,
                 productId: item.productId,
+                sellerId: item.sellerId, // Store sellerId for efficient queries
                 quantity: item.quantity,
                 price: item.price,
                 subtotal: item.price * item.quantity,
@@ -101,37 +103,42 @@ export const listByBuyer = query({
 export const listIncomingOrders = query({
     args: { sellerId: v.id("users") },
     handler: async (ctx, args) => {
-        const allOrders = await ctx.db.query("orders").collect();
-        const sellerOrders = [];
+        // Efficiently query order items by sellerId using index
+        const sellerItems = await ctx.db
+            .query("order_items")
+            .withIndex("by_seller", (q) => q.eq("sellerId", args.sellerId))
+            .collect();
 
-        for (const order of allOrders) {
-            const items = await ctx.db
-                .query("order_items")
-                .withIndex("by_order", (q) => q.eq("orderId", order._id))
-                .collect();
+        // Get unique order IDs
+        const orderIds = [...new Set(sellerItems.map(item => item.orderId))];
 
-            let belongsToSeller = false;
-            for (const item of items) {
-                const product = await ctx.db.get(item.productId);
-                if (product && product.sellerId === args.sellerId) {
-                    belongsToSeller = true;
-                    break;
-                }
-            }
+        // Fetch orders and enrich with buyer/address info
+        const sellerOrders = await Promise.all(
+            orderIds.map(async (orderId) => {
+                const order = await ctx.db.get(orderId);
+                if (!order) return null;
 
-            if (belongsToSeller) {
+                const items = await ctx.db
+                    .query("order_items")
+                    .withIndex("by_order", (q) => q.eq("orderId", orderId))
+                    .collect();
+
+                // Only include items that belong to this seller
+                const sellerItemsForOrder = items.filter(item => item.sellerId === args.sellerId);
+
                 const buyer = await ctx.db.get(order.buyerId);
                 const address = await ctx.db.get(order.addressId);
-                sellerOrders.push({
+
+                return {
                     ...order,
-                    items,
+                    items: sellerItemsForOrder,
                     buyer,
                     address
-                });
-            }
-        }
+                };
+            })
+        );
 
-        return sellerOrders;
+        return sellerOrders.filter(Boolean);
     },
 });
 

@@ -1,13 +1,23 @@
 import { api } from '@/convex/_generated/api';
 import { useAuthStore } from '@/store/authStore';
 import { useCartStore } from '@/store/cartStore';
-import { useMutation, useQuery } from 'convex/react';
+import { useAction, useMutation, useQuery } from 'convex/react';
 import { router } from 'expo-router';
-import { LucideArrowLeft, LucideCreditCard, LucideMapPin, LucideTruck } from 'lucide-react-native';
+import * as Linking from 'expo-linking';
+import * as WebBrowser from 'expo-web-browser';
+import { LucideArrowLeft, LucideCreditCard, LucideMapPin, LucideTruck, LucideShield } from 'lucide-react-native';
 import React, { useState } from 'react';
 import { Alert, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { ActivityIndicator, Button, Card, Divider, RadioButton, Text, useTheme } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+// Payment method configuration
+const PAYMENT_METHODS = [
+    { value: 'COD', label: 'Cash on Delivery', description: 'Pay when you receive', requiresOnlinePayment: false },
+    { value: 'GCASH', label: 'GCash', description: 'Pay via GCash e-wallet', requiresOnlinePayment: true },
+    { value: 'MAYA', label: 'Maya', description: 'Pay via Maya e-wallet', requiresOnlinePayment: true },
+    { value: 'CARD', label: 'Credit/Debit Card', description: 'Visa, Mastercard accepted', requiresOnlinePayment: true },
+] as const;
 
 export default function CheckoutScreen() {
     const theme = useTheme();
@@ -18,9 +28,10 @@ export default function CheckoutScreen() {
     // Convex Hooks
     const profile = useQuery(api.users.getProfileById, user ? { userId: user._id as any } : "skip");
     const createOrder = useMutation(api.orders.create);
+    const createCheckoutSession = useAction(api.paymongo.createCheckoutSession);
 
     const [selectedAddress, setSelectedAddress] = useState<string | null>(null);
-    const [paymentMethod, setPaymentMethod] = useState('COD'); // Default to COD
+    const [paymentMethod, setPaymentMethod] = useState('COD');
     const [submitting, setSubmitting] = useState(false);
 
     // Effect to select default address
@@ -35,6 +46,8 @@ export default function CheckoutScreen() {
 
     const shippingFee = 50; // Flat fee for demo
     const total = totalPrice() + shippingFee;
+
+    const selectedPaymentConfig = PAYMENT_METHODS.find(p => p.value === paymentMethod);
 
     const handlePlaceOrder = async () => {
         if (!selectedAddress) {
@@ -51,13 +64,15 @@ export default function CheckoutScreen() {
         try {
             const orderItems = items.map(item => ({
                 productId: item.id as any,
+                sellerId: item.sellerId as any,
                 quantity: item.quantity,
                 price: item.price,
                 productName: item.name,
                 productImage: item.imageUrl
             }));
 
-            await createOrder({
+            // Create the order first
+            const orderId = await createOrder({
                 buyerId: convexUser._id as any,
                 addressId: selectedAddress as any,
                 paymentMethod: paymentMethod as any,
@@ -68,12 +83,66 @@ export default function CheckoutScreen() {
                 buyerNotes: "Standard delivery"
             });
 
-            clearCart();
-            Alert.alert(
-                'Success',
-                'Your order has been placed successfully!',
-                [{ text: 'OK', onPress: () => router.push('/(tabs)') }]
-            );
+            // If online payment is required, create PayMongo checkout session
+            if (selectedPaymentConfig?.requiresOnlinePayment) {
+                const orderNumber = `ORD-${Date.now().toString(36).toUpperCase()}`;
+                
+                // Generate deep link URLs for redirect
+                const successUrl = Linking.createURL('payment-success', { queryParams: { orderId: orderId as string } });
+                const cancelUrl = Linking.createURL('payment-cancelled', { queryParams: { orderId: orderId as string } });
+
+                const checkoutResult = await createCheckoutSession({
+                    orderId: orderId as any,
+                    orderNumber,
+                    items: items.map(item => ({
+                        name: item.name,
+                        quantity: item.quantity,
+                        amount: item.price,
+                        imageUrl: item.imageUrl,
+                    })),
+                    totalAmount: total,
+                    buyerEmail: convexUser.email,
+                    buyerName: `${convexUser.firstName} ${convexUser.lastName}`,
+                    buyerPhone: convexUser.phoneNumber,
+                    successUrl,
+                    cancelUrl,
+                });
+
+                if ('error' in checkoutResult) {
+                    Alert.alert('Payment Error', checkoutResult.error);
+                    return;
+                }
+
+                // Open PayMongo checkout in browser
+                const result = await WebBrowser.openBrowserAsync(checkoutResult.checkoutUrl, {
+                    dismissButtonStyle: 'cancel',
+                    presentationStyle: WebBrowser.WebBrowserPresentationStyle.FULL_SCREEN,
+                });
+
+                if (result.type === 'cancel') {
+                    Alert.alert(
+                        'Payment Cancelled',
+                        'Your order has been created but payment was not completed. You can complete payment later from your orders.',
+                        [{ text: 'OK', onPress: () => router.push('/(tabs)') }]
+                    );
+                } else {
+                    // Payment completed or user returned
+                    clearCart();
+                    Alert.alert(
+                        'Order Placed',
+                        'Your order has been placed. You will receive a notification once payment is confirmed.',
+                        [{ text: 'View Orders', onPress: () => router.push('/orders' as any) }]
+                    );
+                }
+            } else {
+                // COD - No online payment needed
+                clearCart();
+                Alert.alert(
+                    'Success',
+                    'Your order has been placed successfully! Pay cash when you receive your order.',
+                    [{ text: 'OK', onPress: () => router.push('/(tabs)') }]
+                );
+            }
         } catch (error) {
             console.error('Error placing order:', error);
             Alert.alert('Error', 'Something went wrong. Please try again.');
@@ -157,19 +226,37 @@ export default function CheckoutScreen() {
                     </View>
 
                     <RadioButton.Group onValueChange={value => setPaymentMethod(value)} value={paymentMethod}>
-                        <View style={styles.paymentOption}>
-                            <RadioButton value="COD" />
-                            <Text>Cash on Delivery</Text>
-                        </View>
-                        <View style={styles.paymentOption}>
-                            <RadioButton value="GCASH" />
-                            <Text>GCash</Text>
-                        </View>
-                        <View style={styles.paymentOption}>
-                            <RadioButton value="MAYA" />
-                            <Text>Maya</Text>
-                        </View>
+                        {PAYMENT_METHODS.map((method) => (
+                            <TouchableOpacity
+                                key={method.value}
+                                style={[
+                                    styles.paymentCard,
+                                    paymentMethod === method.value && { borderColor: theme.colors.primary, borderWidth: 2 }
+                                ]}
+                                onPress={() => setPaymentMethod(method.value)}
+                            >
+                                <RadioButton value={method.value} />
+                                <View style={styles.paymentInfo}>
+                                    <Text variant="titleSmall">{method.label}</Text>
+                                    <Text variant="bodySmall" style={styles.paymentDescription}>
+                                        {method.description}
+                                    </Text>
+                                </View>
+                                {method.requiresOnlinePayment && (
+                                    <LucideShield size={16} color={theme.colors.primary} />
+                                )}
+                            </TouchableOpacity>
+                        ))}
                     </RadioButton.Group>
+
+                    {selectedPaymentConfig?.requiresOnlinePayment && (
+                        <View style={styles.paymentNote}>
+                            <LucideShield size={14} color="#10B981" />
+                            <Text variant="bodySmall" style={styles.paymentNoteText}>
+                                Secure payment powered by PayMongo
+                            </Text>
+                        </View>
+                    )}
                 </View>
 
                 {/* Order Summary */}
@@ -207,7 +294,7 @@ export default function CheckoutScreen() {
                     style={styles.placeOrderButton}
                     contentStyle={styles.placeOrderBtnContent}
                 >
-                    Place Order
+                    {selectedPaymentConfig?.requiresOnlinePayment ? 'Proceed to Payment' : 'Place Order'}
                 </Button>
             </View>
         </View>
@@ -280,10 +367,35 @@ const styles = StyleSheet.create({
         borderColor: '#FDA4AF',
         borderWidth: 1,
     },
-    paymentOption: {
+    paymentCard: {
         flexDirection: 'row',
         alignItems: 'center',
-        paddingVertical: 4,
+        padding: 12,
+        borderRadius: 12,
+        backgroundColor: '#F8FAFC',
+        marginBottom: 8,
+        borderWidth: 1,
+        borderColor: 'transparent',
+    },
+    paymentInfo: {
+        flex: 1,
+        marginLeft: 4,
+    },
+    paymentDescription: {
+        color: '#64748B',
+        marginTop: 2,
+    },
+    paymentNote: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#ECFDF5',
+        padding: 10,
+        borderRadius: 8,
+        marginTop: 8,
+    },
+    paymentNoteText: {
+        color: '#059669',
+        marginLeft: 6,
     },
     summaryRow: {
         flexDirection: 'row',

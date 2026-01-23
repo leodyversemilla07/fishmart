@@ -3,13 +3,46 @@ import { internal } from "./_generated/api";
 import { Doc, Id } from "./_generated/dataModel";
 import { action, query } from "./_generated/server";
 
-// Simple hash implementation using Web Crypto API available in Convex
-async function hashPassword(password: string): Promise<string> {
+// Salt length in bytes (16 bytes = 128 bits, industry standard)
+const SALT_LENGTH = 16;
+
+/**
+ * Generate a cryptographically secure random salt
+ */
+function generateSalt(): string {
+    const saltBytes = new Uint8Array(SALT_LENGTH);
+    crypto.getRandomValues(saltBytes);
+    return Array.from(saltBytes).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+/**
+ * Hash password with salt using SHA-256
+ * Format: hash(salt + password)
+ */
+async function hashPassword(password: string, salt: string): Promise<string> {
     const encoder = new TextEncoder();
-    const data = encoder.encode(password);
+    const data = encoder.encode(salt + password);
     const hashBuffer = await crypto.subtle.digest('SHA-256', data);
     const hashArray = Array.from(new Uint8Array(hashBuffer));
     return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+/**
+ * Verify password against stored hash and salt
+ */
+async function verifyPassword(password: string, storedHash: string, salt: string | undefined): Promise<boolean> {
+    if (!salt) {
+        // Legacy password without salt - hash directly for backward compatibility
+        const encoder = new TextEncoder();
+        const data = encoder.encode(password);
+        const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        const legacyHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+        return legacyHash === storedHash;
+    }
+    
+    const hashedInput = await hashPassword(password, salt);
+    return hashedInput === storedHash;
 }
 
 export const signIn = action({
@@ -21,8 +54,8 @@ export const signIn = action({
             return { error: "Invalid email or password" };
         }
 
-        const hashedInput = await hashPassword(args.password);
-        if (hashedInput !== user.password) {
+        const isValid = await verifyPassword(args.password, user.password, (user as any).passwordSalt);
+        if (!isValid) {
             return { error: "Invalid email or password" };
         }
 
@@ -45,11 +78,14 @@ export const signUp = action({
             return { error: "Email already in use" };
         }
 
-        const hashedPassword = await hashPassword(args.password);
+        // Generate salt and hash password
+        const salt = generateSalt();
+        const hashedPassword = await hashPassword(args.password, salt);
 
         const userId = await ctx.runMutation(internal.users.createUser, {
             email: args.email,
             password: hashedPassword,
+            passwordSalt: salt,
             firstName: args.firstName,
             middleName: args.middleName,
             lastName: args.lastName,

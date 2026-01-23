@@ -7,6 +7,7 @@ export interface ConvexUser {
     _id: string;
     id?: string; // mapping for compatibility
     email: string;
+    phoneNumber?: string;
     firstName: string;
     middleName?: string;
     lastName: string;

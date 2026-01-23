@@ -16,16 +16,39 @@ export const list = query({
         status: v.optional(v.string()),
     },
     handler: async (ctx, args) => {
-        let products = await ctx.db.query("products").collect();
+        let productsQuery;
 
-        if (args.categoryId) {
+        // Use indexes when possible for efficient filtering
+        if (args.sellerId) {
+            productsQuery = ctx.db
+                .query("products")
+                .withIndex("by_seller", (q) => q.eq("sellerId", args.sellerId!));
+        } else if (args.categoryId) {
+            productsQuery = ctx.db
+                .query("products")
+                .withIndex("by_category", (q) => q.eq("categoryId", args.categoryId!));
+        } else if (args.status) {
+            productsQuery = ctx.db
+                .query("products")
+                .withIndex("by_status", (q) => q.eq("status", args.status as any));
+        } else {
+            productsQuery = ctx.db.query("products");
+        }
+
+        let products = await productsQuery.collect();
+
+        // Apply additional filters after index query
+        if (args.categoryId && args.sellerId) {
+            // If both filters, we used sellerId index, now filter by category
             products = products.filter((p) => p.categoryId === args.categoryId);
         }
 
-        if (args.sellerId) {
-            products = products.filter((p) => p.sellerId === args.sellerId);
+        if (args.status && (args.sellerId || args.categoryId)) {
+            // If status + another filter, apply status filter
+            products = products.filter((p) => p.status === args.status);
         }
 
+        // Text search (case-insensitive) - still in-memory but on smaller dataset
         if (args.search) {
             const search = args.search.toLowerCase();
             products = products.filter(
@@ -33,10 +56,6 @@ export const list = query({
                     p.name.toLowerCase().includes(search) ||
                     p.description.toLowerCase().includes(search)
             );
-        }
-
-        if (args.status) {
-            products = products.filter((p) => p.status === args.status);
         }
 
         // Join with images and resolve URLs

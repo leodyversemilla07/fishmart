@@ -13,6 +13,7 @@ export default defineSchema({
         shopDescription: v.optional(v.string()),
         shopLogo: v.optional(v.string()),
         password: v.optional(v.string()),
+        passwordSalt: v.optional(v.string()), // Salt for password hashing
 
         isActive: v.boolean(),
         isVerified: v.boolean(),
@@ -103,12 +104,15 @@ export default defineSchema({
     order_items: defineTable({
         orderId: v.id("orders"),
         productId: v.id("products"),
+        sellerId: v.id("users"), // Denormalized for efficient seller queries
         quantity: v.number(),
         price: v.number(),
         subtotal: v.number(),
         productName: v.string(),
         productImage: v.optional(v.string()),
-    }).index("by_order", ["orderId"]),
+    })
+        .index("by_order", ["orderId"])
+        .index("by_seller", ["sellerId"]),
 
     payments: defineTable({
         orderId: v.id("orders"),

@@ -11,8 +11,10 @@
 import type * as auth from "../auth.js";
 import type * as categories from "../categories.js";
 import type * as chat from "../chat.js";
+import type * as http from "../http.js";
 import type * as notifications from "../notifications.js";
 import type * as orders from "../orders.js";
+import type * as paymongo from "../paymongo.js";
 import type * as products from "../products.js";
 import type * as reviews from "../reviews.js";
 import type * as seed from "../seed.js";
@@ -29,8 +31,10 @@ declare const fullApi: ApiFromModules<{
   auth: typeof auth;
   categories: typeof categories;
   chat: typeof chat;
+  http: typeof http;
   notifications: typeof notifications;
   orders: typeof orders;
+  paymongo: typeof paymongo;
   products: typeof products;
   reviews: typeof reviews;
   seed: typeof seed;

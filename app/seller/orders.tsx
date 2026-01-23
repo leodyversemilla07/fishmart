@@ -239,7 +239,7 @@ export default function SellerOrdersScreen() {
                 <FlatList
                     data={orders}
                     renderItem={renderOrderItem}
-                    keyExtractor={item => item._id}
+                    keyExtractor={item => item?._id ?? ''}
                     contentContainerStyle={styles.listContent}
                     refreshControl={
                         <RefreshControl refreshing={false} onRefresh={() => { }} />
