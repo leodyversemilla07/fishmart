@@ -12,11 +12,12 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 export default function MessagesScreen() {
     const theme = useTheme();
     const insets = useSafeAreaInsets();
-    const { convexUser } = useAuthStore();
+    const { sessionToken } = useAuthStore();
 
     // Convex Query
-    const conversations = useQuery(api.chat.getConversations, convexUser ? { userId: convexUser._id as any } : "skip") as Conversation[] || [];
-    const loading = conversations === undefined;
+    const conversationsQuery = useQuery(api.chat.getConversations, sessionToken ? { sessionToken } : "skip");
+    const conversations = (conversationsQuery ?? []) as Conversation[];
+    const loading = conversationsQuery === undefined;
     const [refreshing, setRefreshing] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
 

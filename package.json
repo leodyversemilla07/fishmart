@@ -5,11 +5,14 @@
   "scripts": {
     "start": "expo start",
     "start:mcp": "cross-env EXPO_UNSTABLE_MCP_SERVER=1 expo start",
+    "convex:dev": "npx convex dev",
     "reset-project": "node ./scripts/reset-project.js",
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
-    "lint": "expo lint"
+    "test": "jest",
+    "lint": "eslint . --ext .js,.jsx,.ts,.tsx",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
@@ -52,11 +55,17 @@
     "zustand": "^5.0.9"
   },
   "devDependencies": {
+    "@testing-library/jest-native": "^5.4.3",
+    "@testing-library/react-native": "^12.9.0",
+    "@types/jest": "^29.5.14",
     "@types/react": "~19.1.0",
     "cross-env": "^10.1.0",
     "eslint": "^9.39.2",
     "eslint-config-expo": "~10.0.0",
     "expo-mcp": "~0.2.1",
+    "jest": "^29.7.0",
+    "jest-expo": "^54.0.16",
+    "react-test-renderer": "^19.1.0",
     "typescript": "~5.9.2"
   },
   "private": true

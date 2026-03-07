@@ -14,11 +14,11 @@ export default function AddressFormScreen() {
     const theme = useTheme();
     const insets = useSafeAreaInsets();
     const { id } = useLocalSearchParams<{ id: string }>();
-    const { convexUser } = useAuthStore();
+    const { sessionToken } = useAuthStore();
 
     const isEditing = id && id !== 'new';
 
-    const address = useQuery(api.users.getAddress, { id: id || 'new' }) as Address | null;
+    const address = useQuery(api.users.getAddress, sessionToken ? { sessionToken, id: id || 'new' } : "skip") as Address | null;
     const createAddressMutation = useMutation(api.users.addAddress);
     const updateAddressMutation = useMutation(api.users.updateAddress);
 
@@ -61,13 +61,13 @@ export default function AddressFormScreen() {
         setError(null);
 
         try {
-            if (!convexUser) {
+            if (!sessionToken) {
                 setError('You must be logged in');
                 return;
             }
 
             const addressData = {
-                userId: convexUser._id as Id<"users">,
+                sessionToken,
                 firstName: firstName.trim(),
                 middleName: middleName.trim() || undefined,
                 lastName: lastName.trim(),
@@ -81,11 +81,9 @@ export default function AddressFormScreen() {
             };
 
             if (isEditing) {
-                // Remove userId from update payload
-                const { userId, ...updateData } = addressData;
                 await updateAddressMutation({
                     id: id as Id<"addresses">,
-                    ...updateData
+                    ...addressData
                 });
             } else {
                 await createAddressMutation(addressData);

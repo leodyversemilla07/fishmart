@@ -38,8 +38,8 @@ export default function LoginScreen() {
                 return;
             }
 
-            if (result.user) {
-                login(result.user as any); // Cast because store expects generic _id match
+            if (result.user && result.sessionToken) {
+                login(result.user as any, result.sessionToken);
                 router.replace('/(tabs)');
             }
         } catch (err: any) {

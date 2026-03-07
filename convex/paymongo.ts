@@ -1,18 +1,10 @@
-/**
- * PayMongo Payment Integration for Fishmart
- * 
- * Handles payment processing via PayMongo's Checkout Session API.
- * Supports GCash, Maya, and Credit Card payments.
- */
-
 import { v } from "convex/values";
-import { action, internalMutation } from "./_generated/server";
+import { action, internalMutation, internalQuery } from "./_generated/server";
 import { internal } from "./_generated/api";
+import { applyOrderInventoryIfNeeded, buildOrderLineItems } from "./lib/orders";
 
-// PayMongo API configuration
 const PAYMONGO_API_URL = "https://api.paymongo.com/v1";
 
-// Helper to get API key from environment
 const getPayMongoSecretKey = () => {
     const key = process.env.PAYMONGO_SECRET_KEY;
     if (!key) {
@@ -21,42 +13,74 @@ const getPayMongoSecretKey = () => {
     return key;
 };
 
-// Base64 encode for Basic Auth
-const encodeCredentials = (secretKey: string) => {
-    // In Convex, use btoa for base64 encoding
-    return btoa(`${secretKey}:`);
-};
+const encodeCredentials = (secretKey: string) => btoa(`${secretKey}:`);
 
-/**
- * Create a PayMongo Checkout Session
- * Returns a checkout URL for the user to complete payment
- */
+function normalizePaymentMethod(paymentMethod: string | undefined) {
+    switch ((paymentMethod || "").toLowerCase()) {
+        case "gcash":
+            return "GCASH";
+        case "paymaya":
+        case "maya":
+            return "MAYA";
+        case "card":
+            return "CARD";
+        case "bank_transfer":
+            return "BANK_TRANSFER";
+        case "cod":
+            return "COD";
+        default:
+            return undefined;
+    }
+}
+
+function toPayMongoPaymentMethod(paymentMethod: "GCASH" | "MAYA" | "CARD" | "BANK_TRANSFER" | "COD") {
+    switch (paymentMethod) {
+        case "GCASH":
+            return "gcash";
+        case "MAYA":
+            return "paymaya";
+        case "CARD":
+            return "card";
+        case "BANK_TRANSFER":
+            return "bank_transfer";
+        default:
+            throw new Error(`Unsupported online payment method: ${paymentMethod}`);
+    }
+}
+
 export const createCheckoutSession = action({
     args: {
+        sessionToken: v.string(),
         orderId: v.id("orders"),
-        orderNumber: v.string(),
-        items: v.array(v.object({
-            name: v.string(),
-            quantity: v.number(),
-            amount: v.number(), // In PHP (will be converted to centavos)
-            imageUrl: v.optional(v.string()),
-        })),
-        totalAmount: v.number(), // In PHP
-        buyerEmail: v.string(),
-        buyerName: v.string(),
-        buyerPhone: v.optional(v.string()),
         successUrl: v.string(),
         cancelUrl: v.string(),
     },
-    handler: async (ctx, args): Promise<{ checkoutUrl: string; sessionId: string } | { error: string }> => {
+    handler: async (ctx, args): Promise<{ checkoutUrl: string; sessionId: string; orderNumber: string } | { error: string }> => {
         try {
+            const authResult = await ctx.runQuery(internal.auth.getSessionUser, { sessionToken: args.sessionToken });
+            if (!authResult) {
+                return { error: "Unauthorized" };
+            }
+
+            const order = await ctx.runQuery(internal.paymongo.getOrderForCheckout, {
+                orderId: args.orderId,
+                buyerId: authResult.user._id,
+            });
+            if (!order) {
+                return { error: "Order not found" };
+            }
+            if (order.paymentMethod === "COD") {
+                return { error: "Cash on Delivery orders do not require online payment" };
+            }
+            if (order.paymentStatus === "PAID") {
+                return { error: "Order is already paid" };
+            }
+
             const secretKey = getPayMongoSecretKey();
-            
-            // Convert line items to PayMongo format (amount in centavos)
-            const lineItems = args.items.map(item => ({
+            const lineItems = order.items.map((item) => ({
                 name: item.name,
                 quantity: item.quantity,
-                amount: Math.round(item.amount * 100), // Convert PHP to centavos
+                amount: Math.round(item.amount * 100),
                 currency: "PHP",
                 ...(item.imageUrl && { images: [item.imageUrl] }),
             }));
@@ -65,22 +89,22 @@ export const createCheckoutSession = action({
                 data: {
                     attributes: {
                         line_items: lineItems,
-                        payment_method_types: ["gcash", "paymaya", "card", "grab_pay"],
+                        payment_method_types: [toPayMongoPaymentMethod(order.paymentMethod)],
                         success_url: args.successUrl,
                         cancel_url: args.cancelUrl,
-                        description: `Fishmart Order #${args.orderNumber}`,
-                        reference_number: args.orderNumber,
+                        description: `Fishmart Order #${order.orderNumber}`,
+                        reference_number: order.orderNumber,
                         send_email_receipt: true,
                         show_description: true,
                         show_line_items: true,
                         billing: {
-                            name: args.buyerName,
-                            email: args.buyerEmail,
-                            ...(args.buyerPhone && { phone: args.buyerPhone }),
+                            name: order.buyerName,
+                            email: order.buyerEmail,
+                            ...(order.buyerPhone && { phone: order.buyerPhone }),
                         },
                         metadata: {
                             order_id: args.orderId,
-                            order_number: args.orderNumber,
+                            order_number: order.orderNumber,
                         },
                     },
                 },
@@ -89,7 +113,7 @@ export const createCheckoutSession = action({
             const response = await fetch(`${PAYMONGO_API_URL}/checkout_sessions`, {
                 method: "POST",
                 headers: {
-                    "Authorization": `Basic ${encodeCredentials(secretKey)}`,
+                    Authorization: `Basic ${encodeCredentials(secretKey)}`,
                     "Content-Type": "application/json",
                 },
                 body: JSON.stringify(payload),
@@ -105,15 +129,14 @@ export const createCheckoutSession = action({
             const checkoutUrl = data.data.attributes.checkout_url;
             const sessionId = data.data.id;
 
-            // Store payment record
             await ctx.runMutation(internal.paymongo.createPaymentRecord, {
                 orderId: args.orderId,
-                amount: args.totalAmount,
-                paymentMethod: "PENDING", // Will be updated by webhook
-                paymentIntentId: sessionId,
+                amount: order.totalAmount,
+                paymentMethod: order.paymentMethod,
+                checkoutSessionId: sessionId,
             });
 
-            return { checkoutUrl, sessionId };
+            return { checkoutUrl, sessionId, orderNumber: order.orderNumber };
         } catch (error) {
             console.error("Error creating checkout session:", error);
             return { error: error instanceof Error ? error.message : "Unknown error occurred" };
@@ -121,21 +144,18 @@ export const createCheckoutSession = action({
     },
 });
 
-/**
- * Retrieve a checkout session to check payment status
- */
 export const getCheckoutSession = action({
     args: {
         sessionId: v.string(),
     },
-    handler: async (ctx, args): Promise<{ status: string; paymentIntent?: any } | { error: string }> => {
+    handler: async (_ctx, args): Promise<{ status: string; paymentIntent?: any } | { error: string }> => {
         try {
             const secretKey = getPayMongoSecretKey();
 
             const response = await fetch(`${PAYMONGO_API_URL}/checkout_sessions/${args.sessionId}`, {
                 method: "GET",
                 headers: {
-                    "Authorization": `Basic ${encodeCredentials(secretKey)}`,
+                    Authorization: `Basic ${encodeCredentials(secretKey)}`,
                     "Content-Type": "application/json",
                 },
             });
@@ -157,75 +177,115 @@ export const getCheckoutSession = action({
     },
 });
 
-/**
- * Internal mutation to create payment record
- */
+export const getOrderForCheckout = internalQuery({
+    args: {
+        orderId: v.id("orders"),
+        buyerId: v.id("users"),
+    },
+    handler: async (ctx, args) => {
+        const order = await ctx.db.get(args.orderId);
+        if (!order || order.buyerId !== args.buyerId) {
+            return null;
+        }
+
+        const buyer = await ctx.db.get(order.buyerId);
+        const address = await ctx.db.get(order.addressId);
+        const items = await buildOrderLineItems(ctx, order._id);
+
+        return {
+            orderNumber: order.orderNumber,
+            paymentMethod: order.paymentMethod,
+            paymentStatus: order.paymentStatus,
+            totalAmount: order.total,
+            buyerEmail: buyer?.email ?? "",
+            buyerName: `${buyer?.firstName ?? ""} ${buyer?.lastName ?? ""}`.trim(),
+            buyerPhone: address?.phoneNumber || buyer?.phoneNumber,
+            items,
+        };
+    },
+});
+
 export const createPaymentRecord = internalMutation({
     args: {
         orderId: v.id("orders"),
         amount: v.number(),
-        paymentMethod: v.string(),
-        paymentIntentId: v.string(),
+        paymentMethod: v.union(v.literal("GCASH"), v.literal("MAYA"), v.literal("CARD"), v.literal("BANK_TRANSFER"), v.literal("COD")),
+        checkoutSessionId: v.string(),
     },
     handler: async (ctx, args) => {
         return await ctx.db.insert("payments", {
             orderId: args.orderId,
             amount: args.amount,
-            paymentMethod: args.paymentMethod as any,
+            paymentMethod: args.paymentMethod,
             status: "PENDING",
-            paymentIntentId: args.paymentIntentId,
+            checkoutSessionId: args.checkoutSessionId,
         });
     },
 });
 
-/**
- * Internal mutation to update payment status (called by webhook)
- */
 export const updatePaymentStatus = internalMutation({
     args: {
-        paymentIntentId: v.string(),
-        status: v.string(),
+        checkoutSessionId: v.optional(v.string()),
+        paymentIntentId: v.optional(v.string()),
+        status: v.union(v.literal("PENDING"), v.literal("PROCESSING"), v.literal("PAID"), v.literal("FAILED"), v.literal("REFUNDED")),
         paymentMethod: v.optional(v.string()),
         transactionId: v.optional(v.string()),
         paidAt: v.optional(v.number()),
     },
     handler: async (ctx, args) => {
-        const payment = await ctx.db
-            .query("payments")
-            .withIndex("by_paymentIntentId", (q) => q.eq("paymentIntentId", args.paymentIntentId))
-            .first();
+        let payment =
+            (args.checkoutSessionId
+                ? await ctx.db
+                    .query("payments")
+                    .withIndex("by_checkoutSessionId", (q) => q.eq("checkoutSessionId", args.checkoutSessionId!))
+                    .unique()
+                : null) ||
+            (args.paymentIntentId
+                ? await ctx.db
+                    .query("payments")
+                    .withIndex("by_paymentIntentId", (q) => q.eq("paymentIntentId", args.paymentIntentId!))
+                    .unique()
+                : null);
 
         if (!payment) {
-            throw new Error(`Payment not found for intent: ${args.paymentIntentId}`);
+            throw new Error("Payment not found");
         }
 
-        // Update payment record
+        if (payment.status === "PAID" && args.status === "PAID") {
+            return payment._id;
+        }
+
+        const normalizedMethod = normalizePaymentMethod(args.paymentMethod);
+
         await ctx.db.patch(payment._id, {
-            status: args.status as any,
-            ...(args.paymentMethod && { paymentMethod: args.paymentMethod as any }),
+            status: args.status,
+            ...(normalizedMethod && { paymentMethod: normalizedMethod }),
             ...(args.transactionId && { transactionId: args.transactionId }),
             ...(args.paidAt && { paidAt: args.paidAt }),
+            ...(args.paymentIntentId && { paymentIntentId: args.paymentIntentId }),
+            ...(args.checkoutSessionId && { checkoutSessionId: args.checkoutSessionId }),
         });
 
-        // If payment is successful, update order status
-        if (args.status === "PAID") {
-            const order = await ctx.db.get(payment.orderId);
-            if (order) {
-                await ctx.db.patch(payment.orderId, {
-                    paymentStatus: "PAID",
-                    status: "CONFIRMED",
-                    confirmedAt: Date.now(),
-                });
+        const order = await ctx.db.get(payment.orderId);
+        if (!order) {
+            throw new Error("Order not found for payment");
+        }
 
-                // Notify buyer
-                await ctx.runMutation(internal.notifications.create, {
-                    userId: order.buyerId,
-                    type: "PAYMENT_SUCCESS",
-                    title: "Payment Successful",
-                    message: `Your payment for order ${order.orderNumber} has been confirmed.`,
-                    data: { orderId: payment.orderId, orderNumber: order.orderNumber },
-                });
-            }
+        if (args.status === "PAID") {
+            await applyOrderInventoryIfNeeded(ctx, order);
+            await ctx.db.patch(payment.orderId, {
+                paymentStatus: "PAID",
+                status: "CONFIRMED",
+                confirmedAt: Date.now(),
+            });
+
+            await ctx.runMutation(internal.notifications.create, {
+                userId: order.buyerId,
+                type: "PAYMENT_SUCCESS",
+                title: "Payment Successful",
+                message: `Your payment for order ${order.orderNumber} has been confirmed.`,
+                data: { orderId: payment.orderId, orderNumber: order.orderNumber },
+            });
         } else if (args.status === "FAILED") {
             await ctx.db.patch(payment.orderId, {
                 paymentStatus: "FAILED",

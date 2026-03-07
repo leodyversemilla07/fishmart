@@ -14,13 +14,14 @@ export default function ChatRoomScreen() {
     const theme = useTheme();
     const insets = useSafeAreaInsets();
     const { id, recipientName, recipientId } = useLocalSearchParams<{ id: string; recipientName: string; recipientId: string }>();
-    const { convexUser } = useAuthStore();
+    const { convexUser, sessionToken } = useAuthStore();
 
     // Convex Hooks
-    const messages = useQuery(api.chat.getMessages, id ? { conversationId: id as Id<"conversations"> } : "skip") || [];
+    const messagesQuery = useQuery(api.chat.getMessages, id && sessionToken ? { sessionToken, conversationId: id as Id<"conversations"> } : "skip");
+    const messages = messagesQuery ?? [];
     const sendMessage = useMutation(api.chat.sendMessage);
 
-    const loading = messages === undefined;
+    const loading = messagesQuery === undefined;
     const [messageText, setMessageText] = useState('');
     const [sending, setSending] = useState(false);
     const flatListRef = useRef<FlatList>(null);
@@ -28,7 +29,7 @@ export default function ChatRoomScreen() {
     const handleSend = async () => {
         if (!messageText.trim()) return;
 
-        if (!convexUser?._id) {
+        if (!convexUser?._id || !sessionToken) {
             console.error('No user logged in');
             return;
         }
@@ -39,8 +40,8 @@ export default function ChatRoomScreen() {
 
         try {
             await sendMessage({
+                sessionToken,
                 conversationId: id as Id<"conversations">,
-                senderId: convexUser._id as Id<"users">,
                 content: textToBatch,
             });
             setTimeout(() => flatListRef.current?.scrollToEnd(), 200);

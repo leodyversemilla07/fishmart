@@ -23,10 +23,10 @@ export default function CheckoutScreen() {
     const theme = useTheme();
     const insets = useSafeAreaInsets();
     const { items, totalPrice, clearCart } = useCartStore();
-    const { user, convexUser } = useAuthStore();
+    const { sessionToken } = useAuthStore();
 
     // Convex Hooks
-    const profile = useQuery(api.users.getProfileById, user ? { userId: user._id as any } : "skip");
+    const profile = useQuery(api.users.getProfileById, sessionToken ? { sessionToken } : "skip");
     const createOrder = useMutation(api.orders.create);
     const createCheckoutSession = useAction(api.paymongo.createCheckoutSession);
 
@@ -55,8 +55,8 @@ export default function CheckoutScreen() {
             return;
         }
 
-        if (!convexUser?._id) {
-            Alert.alert('Error', 'User ID not found. Please re-login.');
+        if (!sessionToken) {
+            Alert.alert('Error', 'Session expired. Please re-login.');
             return;
         }
 
@@ -64,46 +64,27 @@ export default function CheckoutScreen() {
         try {
             const orderItems = items.map(item => ({
                 productId: item.id as any,
-                sellerId: item.sellerId as any,
                 quantity: item.quantity,
-                price: item.price,
-                productName: item.name,
-                productImage: item.imageUrl
             }));
 
             // Create the order first
-            const orderId = await createOrder({
-                buyerId: convexUser._id as any,
+            const orderResult = await createOrder({
+                sessionToken,
                 addressId: selectedAddress as any,
                 paymentMethod: paymentMethod as any,
                 items: orderItems,
-                shippingFee: shippingFee,
-                subtotal: totalPrice(),
-                total: total,
                 buyerNotes: "Standard delivery"
             });
 
             // If online payment is required, create PayMongo checkout session
             if (selectedPaymentConfig?.requiresOnlinePayment) {
-                const orderNumber = `ORD-${Date.now().toString(36).toUpperCase()}`;
-                
                 // Generate deep link URLs for redirect
-                const successUrl = Linking.createURL('payment-success', { queryParams: { orderId: orderId as string } });
-                const cancelUrl = Linking.createURL('payment-cancelled', { queryParams: { orderId: orderId as string } });
+                const successUrl = Linking.createURL('payment-success', { queryParams: { orderId: orderResult.orderId as string } });
+                const cancelUrl = Linking.createURL('payment-cancelled', { queryParams: { orderId: orderResult.orderId as string } });
 
                 const checkoutResult = await createCheckoutSession({
-                    orderId: orderId as any,
-                    orderNumber,
-                    items: items.map(item => ({
-                        name: item.name,
-                        quantity: item.quantity,
-                        amount: item.price,
-                        imageUrl: item.imageUrl,
-                    })),
-                    totalAmount: total,
-                    buyerEmail: convexUser.email,
-                    buyerName: `${convexUser.firstName} ${convexUser.lastName}`,
-                    buyerPhone: convexUser.phoneNumber,
+                    sessionToken,
+                    orderId: orderResult.orderId as any,
                     successUrl,
                     cancelUrl,
                 });
@@ -123,7 +104,7 @@ export default function CheckoutScreen() {
                     Alert.alert(
                         'Payment Cancelled',
                         'Your order has been created but payment was not completed. You can complete payment later from your orders.',
-                        [{ text: 'OK', onPress: () => router.push('/(tabs)') }]
+                        [{ text: 'View Orders', onPress: () => router.push('/orders' as any) }]
                     );
                 } else {
                     // Payment completed or user returned
@@ -140,7 +121,7 @@ export default function CheckoutScreen() {
                 Alert.alert(
                     'Success',
                     'Your order has been placed successfully! Pay cash when you receive your order.',
-                    [{ text: 'OK', onPress: () => router.push('/(tabs)') }]
+                    [{ text: 'View Orders', onPress: () => router.push('/orders' as any) }]
                 );
             }
         } catch (error) {
@@ -209,7 +190,7 @@ export default function CheckoutScreen() {
                                 <Button
                                     mode="outlined"
                                     style={{ marginTop: 10 }}
-                                    onPress={() => router.push('/profile/address' as any)}
+                                    onPress={() => router.push('/profile/address/new' as any)}
                                 >
                                     Add New Address
                                 </Button>

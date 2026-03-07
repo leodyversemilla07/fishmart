@@ -26,18 +26,20 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 export default function NotificationsScreen() {
     const theme = useTheme();
     const insets = useSafeAreaInsets();
-    const { convexUser } = useAuthStore();
+    const { sessionToken } = useAuthStore();
 
     // Convex Hooks
-    const notifications = useQuery(api.notifications.list, convexUser ? { userId: convexUser._id as any } : "skip") || [];
+    const notifications = useQuery(api.notifications.list, sessionToken ? { sessionToken } : "skip");
     const markAsReadMutation = useMutation(api.notifications.markAsRead);
     const markAllAsReadMutation = useMutation(api.notifications.markAllAsRead);
 
     const loading = notifications === undefined;
+    const notificationList = notifications || [];
 
     const handleNotificationPress = async (notification: Notification) => {
         if (!notification.isRead) {
-            await markAsReadMutation({ id: notification._id });
+            if (!sessionToken) return;
+            await markAsReadMutation({ sessionToken, id: notification._id });
         }
 
         // Navigate based on type
@@ -49,8 +51,8 @@ export default function NotificationsScreen() {
     };
 
     const handleMarkAllAsRead = async () => {
-        if (convexUser?._id) {
-            await markAllAsReadMutation({ userId: convexUser._id as any });
+        if (sessionToken) {
+            await markAllAsReadMutation({ sessionToken });
         }
     };
 
@@ -99,7 +101,7 @@ export default function NotificationsScreen() {
         );
     };
 
-    const hasUnread = notifications.some((n: Notification) => !n.isRead);
+    const hasUnread = notificationList.some((n: Notification) => !n.isRead);
 
     return (
         <View style={styles.container}>
@@ -122,7 +124,7 @@ export default function NotificationsScreen() {
                 </View>
             ) : (
                 <FlatList
-                    data={notifications}
+                    data={notificationList}
                     renderItem={renderItem}
                     keyExtractor={item => item._id}
                     contentContainerStyle={styles.listContent}

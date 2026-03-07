@@ -19,6 +19,8 @@
 - Fish product listings with images and details
 - Product categories and search functionality
 - Shopping cart and checkout
+- In-app messaging between buyers and sellers
+- Rating and review system
 - Multiple payment options (GCash, Maya, Cards, COD)
 - Order management and tracking
 - Push notifications for order updates
@@ -27,8 +29,6 @@
 - Basic admin panel
 
 ### Phase 2 (Future)
-- In-app messaging between buyers and sellers
-- Rating and review system
 - Fish care guides and compatibility checker
 - Breeding pair recommendations
 - Live inventory updates
@@ -36,31 +36,31 @@
 - Loyalty program
 - Aquarium supplies expansion
 
-## Technical Stack
+### Technical Stack
 
 ### Mobile Application
 - **Framework**: React Native 0.76+ with Expo
 - **Language**: TypeScript
 - **UI Library**: React Native Paper
 - **State Management**: Zustand
-- **API Communication**: React Query (TanStack Query)
-- **Navigation**: React Navigation
+- **API Communication**: Convex Queries
+- **Navigation**: Expo Router
 
 ### Backend
-- **Framework**: NestJS
+- **Platform**: Convex
 - **Language**: TypeScript
-- **Database**: PostgreSQL
-- **ORM**: Prisma
-- **Authentication**: Supabase Auth
-- **API Style**: RESTful API
+- **Features**:
+  - Real-time Database
+  - Serverless Functions
+  - Authentication
+  - File Storage
+  - Scheduling
 
 ### Infrastructure & Services
-- **Database Hosting**: Supabase
-- **Backend Hosting**: Railway (Singapore region)
-- **File Storage**: Cloudinary
-- **Payment Gateway**: PayMongo
-- **Push Notifications**: Firebase Cloud Messaging (FCM)
-- **SMS Service**: Semaphore
+- **Backend & Database**: Convex
+- **Payment Gateway**: PayMongo (Future)
+- **Push Notifications**: Firebase Cloud Messaging (FCM) (Future)
+- **SMS Service**: Semaphore (Future)
 - **Version Control**: Git + GitHub
 
 ## Documentation Structure
@@ -108,13 +108,11 @@
 - Testing: ₱30,000 - ₱50,000
 
 ### Monthly Operations
-- Hosting (Railway): ₱500 - ₱2,000
-- Database (Supabase): Free tier initially, ₱1,000+ when scaling
-- Cloudinary: Free tier initially, ₱500+ when scaling
-- PayMongo: Transaction fees only (3.5% + ₱15 per transaction)
-- SMS (Semaphore): ₱500 - ₱2,000 (depending on volume)
-- Firebase: Free tier initially
-- **Total**: ₱1,500 - ₱5,000/month initially
+- **Convex**: Free tier initially, with scaling costs based on usage.
+- **PayMongo**: Transaction fees only (3.5% + ₱15 per transaction) (Future)
+- **SMS (Semaphore)**: ₱500 - ₱2,000 (depending on volume) (Future)
+- **Firebase**: Free tier initially (Future)
+- **Total**: Starts with Convex's free tier, additional costs with future integrations.
 
 ### App Store Fees
 - Google Play Store: $25 one-time fee
@@ -180,5 +178,5 @@
 ---
 
 **Document Version**: 1.0  
-**Last Updated**: December 23, 2025  
+**Last Updated**: January 16, 2026  
 **Next Review**: January 2026

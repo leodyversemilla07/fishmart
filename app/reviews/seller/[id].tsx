@@ -10,7 +10,7 @@ import { Avatar, Button, Divider, Text, TextInput, useTheme } from 'react-native
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function SellerReviewsScreen() {
-    const { convexUser } = useAuthStore();
+    const { convexUser, sessionToken } = useAuthStore();
     const theme = useTheme();
     const insets = useSafeAreaInsets();
     const { id } = useLocalSearchParams<{ id: string }>();
@@ -27,10 +27,12 @@ export default function SellerReviewsScreen() {
 
     const handleReply = async (reviewId: string) => {
         if (!replyText.trim()) return;
+        if (!sessionToken) return;
 
         setSubmittingReply(true);
         try {
             await replyMutation({
+                sessionToken,
                 reviewId: reviewId as any,
                 response: replyText,
             });

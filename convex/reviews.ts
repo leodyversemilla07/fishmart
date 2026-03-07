@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
+import { requireSessionUser } from "./lib/session";
 
 // Helper to resolve URL
 const resolveUrl = async (ctx: any, url: string) => {
@@ -11,16 +12,17 @@ const resolveUrl = async (ctx: any, url: string) => {
 export const create = mutation({
     args: {
         productId: v.id("products"),
-        userId: v.id("users"),
+        sessionToken: v.string(),
         rating: v.number(),
         comment: v.optional(v.string()),
         images: v.array(v.string()),
     },
     handler: async (ctx, args) => {
+        const user = await requireSessionUser(ctx, args.sessionToken);
         // Check if user has already reviewed this product
         const existing = await ctx.db
             .query("reviews")
-            .withIndex("by_product_user", (q) => q.eq("productId", args.productId).eq("userId", args.userId))
+            .withIndex("by_product_user", (q) => q.eq("productId", args.productId).eq("userId", user._id))
             .unique();
 
         if (existing) {
@@ -30,7 +32,11 @@ export const create = mutation({
         // Ideally check if user has purchased the product here
 
         return await ctx.db.insert("reviews", {
-            ...args,
+            productId: args.productId,
+            userId: user._id,
+            rating: args.rating,
+            comment: args.comment,
+            images: args.images,
             helpfulCount: 0,
         });
     },
@@ -109,10 +115,20 @@ export const listBySeller = query({
 
 export const replyToReview = mutation({
     args: {
+        sessionToken: v.string(),
         reviewId: v.id("reviews"),
         response: v.string(),
     },
     handler: async (ctx, args) => {
+        const actor = await requireSessionUser(ctx, args.sessionToken);
+        const review = await ctx.db.get(args.reviewId);
+        if (!review) {
+            throw new Error("Review not found");
+        }
+        const product = await ctx.db.get(review.productId);
+        if (!product || (product.sellerId !== actor._id && actor.role !== "ADMIN")) {
+            throw new Error("Forbidden");
+        }
         await ctx.db.patch(args.reviewId, {
             sellerResponse: args.response,
             respondedAt: Date.now(),

@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 // force rebuild
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
+import { assertSameUser, requireSessionUser } from "./lib/session";
 
 // Helper to resolve URL
 const resolveUrl = async (ctx: any, url: string) => {
@@ -48,10 +49,9 @@ export const createUser = internalMutation({
 
 // We need a getProfileById for our new Auth system
 export const getProfileById = query({
-    args: { userId: v.id("users") },
+    args: { sessionToken: v.string() },
     handler: async (ctx, args) => {
-        const user = await ctx.db.get(args.userId);
-        if (!user) return null;
+        const user = await requireSessionUser(ctx, args.sessionToken);
 
         if (user.shopLogo) {
             user.shopLogo = await resolveUrl(ctx, user.shopLogo) || user.shopLogo;
@@ -85,7 +85,7 @@ export const getProfileById = query({
 
 export const updateProfile = mutation({
     args: {
-        id: v.id("users"),
+        sessionToken: v.string(),
         firstName: v.optional(v.string()),
         middleName: v.optional(v.string()),
         lastName: v.optional(v.string()),
@@ -95,25 +95,27 @@ export const updateProfile = mutation({
         shopLogo: v.optional(v.string()),
     },
     handler: async (ctx, args) => {
-        const { id, ...updates } = args;
-        await ctx.db.patch(id, updates);
-        return await ctx.db.get(id);
+        const user = await requireSessionUser(ctx, args.sessionToken);
+        const { sessionToken, ...updates } = args;
+        await ctx.db.patch(user._id, updates);
+        return await ctx.db.get(user._id);
     },
 });
 
 export const listAddresses = query({
-    args: { userId: v.id("users") },
+    args: { sessionToken: v.string() },
     handler: async (ctx, args) => {
+        const user = await requireSessionUser(ctx, args.sessionToken);
         return await ctx.db
             .query("addresses")
-            .withIndex("by_user", (q) => q.eq("userId", args.userId))
+            .withIndex("by_user", (q) => q.eq("userId", user._id))
             .collect();
     },
 });
 
 export const addAddress = mutation({
     args: {
-        userId: v.id("users"),
+        sessionToken: v.string(),
         firstName: v.string(),
         middleName: v.optional(v.string()),
         lastName: v.string(),
@@ -126,11 +128,12 @@ export const addAddress = mutation({
         isDefault: v.boolean(),
     },
     handler: async (ctx, args) => {
+        const user = await requireSessionUser(ctx, args.sessionToken);
         if (args.isDefault) {
             // Unset other defaults
             const existing = await ctx.db
                 .query("addresses")
-                .withIndex("by_user", (q) => q.eq("userId", args.userId))
+                .withIndex("by_user", (q) => q.eq("userId", user._id))
                 .collect();
             for (const addr of existing) {
                 if (addr.isDefault) {
@@ -138,23 +141,40 @@ export const addAddress = mutation({
                 }
             }
         }
-        return await ctx.db.insert("addresses", args);
+        const { sessionToken, ...address } = args;
+        return await ctx.db.insert("addresses", {
+            ...address,
+            userId: user._id,
+        });
     },
 });
 
 export const deleteAddress = mutation({
-    args: { id: v.id("addresses") },
+    args: { sessionToken: v.string(), id: v.id("addresses") },
     handler: async (ctx, args) => {
+        const user = await requireSessionUser(ctx, args.sessionToken);
+        const address = await ctx.db.get(args.id);
+        if (!address) {
+            throw new Error("Address not found");
+        }
+        assertSameUser(user._id, address.userId);
         await ctx.db.delete(args.id);
     },
 });
 
 export const setDefaultAddress = mutation({
-    args: { id: v.id("addresses"), userId: v.id("users") },
+    args: { sessionToken: v.string(), id: v.id("addresses") },
     handler: async (ctx, args) => {
+        const user = await requireSessionUser(ctx, args.sessionToken);
+        const selected = await ctx.db.get(args.id);
+        if (!selected) {
+            throw new Error("Address not found");
+        }
+        assertSameUser(user._id, selected.userId);
+
         const existing = await ctx.db
             .query("addresses")
-            .withIndex("by_user", (q) => q.eq("userId", args.userId))
+            .withIndex("by_user", (q) => q.eq("userId", user._id))
             .collect();
 
         for (const addr of existing) {
@@ -167,15 +187,22 @@ export const setDefaultAddress = mutation({
 });
 
 export const getAddress = query({
-    args: { id: v.string() }, // Accept string to handle "new" or id
+    args: { sessionToken: v.string(), id: v.string() }, // Accept string to handle "new" or id
     handler: async (ctx, args) => {
         if (args.id === "new") return null;
-        return await ctx.db.get(args.id as any);
+        const user = await requireSessionUser(ctx, args.sessionToken);
+        const address = await ctx.db.get(args.id as any);
+        if (!address) {
+            return null;
+        }
+        assertSameUser(user._id, address.userId);
+        return address;
     },
 });
 
 export const updateAddress = mutation({
     args: {
+        sessionToken: v.string(),
         id: v.id("addresses"),
         firstName: v.optional(v.string()),
         middleName: v.optional(v.string()),
@@ -189,7 +216,25 @@ export const updateAddress = mutation({
         isDefault: v.optional(v.boolean()),
     },
     handler: async (ctx, args) => {
-        const { id, ...updates } = args;
+        const user = await requireSessionUser(ctx, args.sessionToken);
+        const address = await ctx.db.get(args.id);
+        if (!address) {
+            throw new Error("Address not found");
+        }
+        assertSameUser(user._id, address.userId);
+
+        const { id, sessionToken, ...updates } = args;
+        if (updates.isDefault) {
+            const existing = await ctx.db
+                .query("addresses")
+                .withIndex("by_user", (q) => q.eq("userId", user._id))
+                .collect();
+            for (const addr of existing) {
+                if (addr._id !== id && addr.isDefault) {
+                    await ctx.db.patch(addr._id, { isDefault: false });
+                }
+            }
+        }
         await ctx.db.patch(id, updates);
         return await ctx.db.get(id);
     }
@@ -226,15 +271,9 @@ export const getPublicProfile = query({
             })
         );
 
-        const orders = await ctx.db
-            .query("orders")
-            .collect(); // NOTE: Unfiltered orders collection? This was in original code but seems wrong/inefficient. 
-        // But I'll keep logic for now, just fix filtering if I see it.
-        // Wait, it is NOT filtered! Line 155 in original.  It collects ALL orders just to not use them?
-        // Ah, it's not used in returned object. I'll leave it or remove it. It's unused.
-
         let reviewCount = 0;
         let totalRating = 0;
+        const recentReviews = [];
         for (const product of products) {
             const reviews = await ctx.db
                 .query("reviews")
@@ -243,6 +282,15 @@ export const getPublicProfile = query({
 
             reviewCount += reviews.length;
             totalRating += reviews.reduce((acc, r) => acc + r.rating, 0);
+
+            for (const review of reviews.slice(0, Math.max(0, 3 - recentReviews.length))) {
+                const reviewer = await ctx.db.get(review.userId);
+                recentReviews.push({
+                    ...review,
+                    user: reviewer,
+                    product,
+                });
+            }
         }
 
         return {
@@ -251,7 +299,7 @@ export const getPublicProfile = query({
             averageRating: reviewCount > 0 ? totalRating / reviewCount : 5.0,
             reviewCount,
             isVerified: user.isVerified || false,
-            recentReviews: [], // For now
+            recentReviews,
             _count: {
                 products: products.length
             }

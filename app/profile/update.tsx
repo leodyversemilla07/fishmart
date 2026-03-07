@@ -12,10 +12,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 export default function UpdateProfileScreen() {
     const theme = useTheme();
     const insets = useSafeAreaInsets();
-    const { user, convexUser } = useAuthStore();
+    const { user, sessionToken } = useAuthStore();
 
     // Convex Hooks
-    const profile = useQuery(api.users.getProfileById, user ? { userId: user._id as any } : "skip");
+    const profile = useQuery(api.users.getProfileById, sessionToken ? { sessionToken } : "skip");
     const updateProfile = useMutation(api.users.updateProfile);
 
     const [saving, setSaving] = useState(false);
@@ -54,7 +54,7 @@ export default function UpdateProfileScreen() {
     };
 
     const handleSave = async () => {
-        if (!user?._id) return;
+        if (!user?._id || !sessionToken) return;
 
         setSaving(true);
         try {
@@ -75,7 +75,7 @@ export default function UpdateProfileScreen() {
             // storage ID with signed URL (which expires).
 
             const updates: any = {
-                id: user._id as any,
+                sessionToken,
                 firstName,
                 middleName,
                 lastName,

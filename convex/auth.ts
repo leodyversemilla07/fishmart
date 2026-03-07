@@ -1,7 +1,8 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { Doc, Id } from "./_generated/dataModel";
-import { action, query } from "./_generated/server";
+import { action, internalMutation, internalQuery, query } from "./_generated/server";
+import { generateSessionToken, getSessionRecord, hashSessionToken, SESSION_DURATION_MS } from "./lib/session";
 
 // Salt length in bytes (16 bytes = 128 bits, industry standard)
 const SALT_LENGTH = 16;
@@ -47,10 +48,10 @@ async function verifyPassword(password: string, storedHash: string, salt: string
 
 export const signIn = action({
     args: { email: v.string(), password: v.string() },
-    handler: async (ctx, args): Promise<{ error: string } | { userId: Id<"users">, user: Doc<"users"> }> => {
+    handler: async (ctx, args): Promise<{ error: string } | { userId: Id<"users">, user: Omit<Doc<"users">, "password" | "passwordSalt">, sessionToken: string }> => {
         const user: Doc<"users"> | null = await ctx.runQuery(internal.users.getUserByEmail, { email: args.email });
 
-        if (!user || !user.password) {
+        if (!user || !user.password || !user.isActive) {
             return { error: "Invalid email or password" };
         }
 
@@ -59,7 +60,14 @@ export const signIn = action({
             return { error: "Invalid email or password" };
         }
 
-        return { userId: user._id, user };
+        const sessionToken = generateSessionToken();
+        await ctx.runMutation(internal.auth.createSession, {
+            userId: user._id,
+            sessionToken,
+        });
+
+        const { password, passwordSalt, ...safeUser } = user;
+        return { userId: user._id, user: safeUser, sessionToken };
     },
 });
 
@@ -93,6 +101,56 @@ export const signUp = action({
         });
 
         return { userId };
+    },
+});
+
+export const signOut = action({
+    args: { sessionToken: v.string() },
+    handler: async (ctx, args) => {
+        await ctx.runMutation(internal.auth.revokeSession, { sessionToken: args.sessionToken });
+        return { ok: true };
+    },
+});
+
+export const createSession = internalMutation({
+    args: {
+        userId: v.id("users"),
+        sessionToken: v.string(),
+    },
+    handler: async (ctx, args) => {
+        const tokenHash = await hashSessionToken(args.sessionToken);
+        return await ctx.db.insert("sessions", {
+            userId: args.userId,
+            tokenHash,
+            expiresAt: Date.now() + SESSION_DURATION_MS,
+        });
+    },
+});
+
+export const revokeSession = internalMutation({
+    args: { sessionToken: v.string() },
+    handler: async (ctx, args) => {
+        const session = await getSessionRecord(ctx, args.sessionToken);
+        if (session && !session.revokedAt) {
+            await ctx.db.patch(session._id, { revokedAt: Date.now() });
+        }
+    },
+});
+
+export const getSessionUser = internalQuery({
+    args: { sessionToken: v.string() },
+    handler: async (ctx, args) => {
+        const session = await getSessionRecord(ctx, args.sessionToken);
+        if (!session || session.revokedAt || session.expiresAt <= Date.now()) {
+            return null;
+        }
+
+        const user = await ctx.db.get(session.userId);
+        if (!user || !user.isActive) {
+            return null;
+        }
+
+        return { session, user };
     },
 });
 

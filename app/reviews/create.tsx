@@ -14,7 +14,7 @@ export default function CreateReviewScreen() {
     const theme = useTheme();
     const insets = useSafeAreaInsets();
     const { productId, name } = useLocalSearchParams<{ productId: string; name: string }>();
-    const { convexUser } = useAuthStore();
+    const { sessionToken } = useAuthStore();
 
     const createReviewMutation = useMutation(api.reviews.create);
 
@@ -45,7 +45,7 @@ export default function CreateReviewScreen() {
 
     const handleSubmit = async () => {
         if (!productId) return;
-        if (!convexUser) {
+        if (!sessionToken) {
             Alert.alert('Error', 'You must be logged in to review.');
             return;
         }
@@ -64,7 +64,7 @@ export default function CreateReviewScreen() {
 
             await createReviewMutation({
                 productId: productId as any,
-                userId: convexUser._id as any,
+                sessionToken,
                 rating,
                 comment,
                 images: uploadedUrls,

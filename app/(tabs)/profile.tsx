@@ -1,6 +1,6 @@
 import { api } from '@/convex/_generated/api';
 import { useAuthStore } from '@/store/authStore';
-import { useQuery } from 'convex/react';
+import { useAction, useQuery } from 'convex/react';
 import { router } from 'expo-router';
 import { LucideHelpCircle, LucidePackageCheck, LucideSettings, LucideShoppingBag, LucideStore } from 'lucide-react-native';
 import React, { useState } from 'react';
@@ -8,15 +8,23 @@ import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { ActivityIndicator, Avatar, Button, Card, Divider, List, Text, useTheme } from 'react-native-paper';
 
 export default function ProfileScreen() {
-    const { user, logout } = useAuthStore();
+    const { user, sessionToken, logout } = useAuthStore();
     const theme = useTheme();
 
     // Convex Query - skip if no user
-    const profile = useQuery(api.users.getProfileById, user ? { userId: user._id as any } : "skip");
+    const profile = useQuery(api.users.getProfileById, sessionToken ? { sessionToken } : "skip");
+    const signOut = useAction(api.auth.signOut);
     const loading = profile === undefined;
     const [refreshing, setRefreshing] = useState(false);
 
-    const handleSignOut = () => {
+    const handleSignOut = async () => {
+        if (sessionToken) {
+            try {
+                await signOut({ sessionToken });
+            } catch (error) {
+                console.error('Failed to revoke session:', error);
+            }
+        }
         logout();
         router.replace('/login');
     };

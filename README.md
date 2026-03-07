@@ -1,48 +1,74 @@
-# 🐠 Fishmart
+# Fishmart
 
-Fishmart is a premium e-commerce platform dedicated to guppy breeders and aquatic enthusiasts in the Philippines.
+Fishmart is an Expo Router mobile marketplace for guppy breeders and aquatic hobbyists, backed by Convex for data, auth sessions, uploads, chat, orders, and payments.
 
-## 🏗️ Project Structure
+## Stack
 
-- **`apps/mobile`**: React Native (Expo) application for buyers and sellers.
-- **`apps/backend`**: NestJS REST API with Prisma ORM and PostgreSQL.
-- **`docs`**: Technical documentation, database schemas, and architectural designs.
+- Expo SDK 54 / React Native
+- Expo Router
+- Convex
+- React Native Paper
+- Zustand
+- Jest
 
-## 🚀 Getting Started
+## Project Layout
 
-### Prerequisites
+- `app/`: Expo Router screens
+- `components/`: shared UI and feature components
+- `convex/`: schema, queries, mutations, actions, and HTTP webhooks
+- `store/`: local Zustand state
+- `utils/`: app-side helpers such as uploads
+- `docs/`: product and architecture notes
 
-- Node.js (v18+)
-- npm or yarn
-- Docker (for PostgreSQL) or a Supabase account
+## Requirements
 
-### Quick Start
+- Node.js 18+
+- npm
+- A Convex deployment
+- PayMongo credentials for online payments
 
-1. **Install Dependencies**:
-   ```bash
-   npm run install:all
-   ```
+## Environment
 
-2. **Run Backend**:
-   ```bash
-   npm run backend:dev
-   ```
+Create `.env.local` with at least:
 
-3. **Run Mobile App**:
-   ```bash
-   npm run mobile:start
-   ```
+```env
+EXPO_PUBLIC_CONVEX_URL=your_convex_url
+PAYMONGO_SECRET_KEY=your_paymongo_secret_key
+PAYMONGO_WEBHOOK_SECRET=your_paymongo_webhook_secret
+```
 
-## 📖 Documentation
+`EXPO_PUBLIC_CONVEX_URL` is required by both the app client and upload helper.
 
-- [Project Overview](docs/PROJECT.md)
-- [Database Schema](docs/DB.md)
+## Development
 
-## 🛠️ Tech Stack
+Install dependencies:
 
-- **Mobile**: React Native, Expo, React Native Paper, Zustand, TanStack Query.
-- **Backend**: NestJS, Prisma, PostgreSQL, Supabase Auth.
-- **Services**: PayMongo (Payments), Cloudinary (Images), Semaphore (SMS).
+```bash
+npm install
+```
 
----
-Built with ❤️ for the aquatic community.
+Run Convex codegen/dev server:
+
+```bash
+npm run convex:dev
+```
+
+Start the Expo app:
+
+```bash
+npm run start
+```
+
+Useful checks:
+
+```bash
+npm run lint
+npm run typecheck
+npm test
+```
+
+## Notes
+
+- Online payments are handled through PayMongo checkout sessions plus a Convex webhook endpoint at `/webhooks/paymongo`.
+- Local auth uses a lightweight session token stored in the app and validated server-side in Convex.
+- The repository may not include `node_modules`; install dependencies before running lint, tests, or typecheck.

@@ -1,7 +1,10 @@
 import { api } from '@/convex/_generated/api';
-import { useQuery } from 'convex/react';
+import { useAuthStore } from '@/store/authStore';
+import { useAction, useQuery } from 'convex/react';
 import { Image as ExpoImage } from 'expo-image';
+import * as Linking from 'expo-linking';
 import { router, useLocalSearchParams } from 'expo-router';
+import * as WebBrowser from 'expo-web-browser';
 import {
     LucideArrowLeft,
     LucideBox,
@@ -19,9 +22,11 @@ export default function OrderDetailsScreen() {
     const theme = useTheme();
     const insets = useSafeAreaInsets();
     const { id } = useLocalSearchParams<{ id: string }>();
+    const { sessionToken } = useAuthStore();
 
     // Convex Query
-    const order = useQuery(api.orders.get, { id: id as any });
+    const order = useQuery(api.orders.get, sessionToken ? { sessionToken, id: id as any } : "skip");
+    const retryPayment = useAction(api.orders.retryPayment);
     const loading = order === undefined;
 
     const getStatusColor = (status: string) => {
@@ -67,6 +72,23 @@ export default function OrderDetailsScreen() {
             case 'BANK_TRANSFER': return 'Bank Transfer';
             default: return method;
         }
+    };
+
+    const handleRetryPayment = async () => {
+        if (!sessionToken || !id) return;
+        const result = await retryPayment({
+            sessionToken,
+            orderId: id as any,
+            successUrl: Linking.createURL('payment-success', { queryParams: { orderId: id } }),
+            cancelUrl: Linking.createURL('payment-cancelled', { queryParams: { orderId: id } }),
+        });
+        if ('error' in result) {
+            return;
+        }
+        await WebBrowser.openBrowserAsync(result.checkoutUrl, {
+            dismissButtonStyle: 'cancel',
+            presentationStyle: WebBrowser.WebBrowserPresentationStyle.FULL_SCREEN,
+        });
     };
 
     if (loading) {
@@ -258,6 +280,15 @@ export default function OrderDetailsScreen() {
 
                 {/* Action Buttons */}
                 <View style={styles.actions}>
+                    {order.paymentMethod !== 'COD' && order.paymentStatus !== 'PAID' && order.status === 'PENDING' && (
+                        <Button
+                            mode="contained"
+                            style={styles.actionButton}
+                            onPress={handleRetryPayment}
+                        >
+                            Retry Payment
+                        </Button>
+                    )}
                     <Button
                         mode="outlined"
                         style={styles.actionButton}

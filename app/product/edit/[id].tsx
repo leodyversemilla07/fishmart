@@ -1,5 +1,6 @@
 import { api } from '@/convex/_generated/api';
 import { Category } from '@/types';
+import { useAuthStore } from '@/store/authStore';
 import { pickImage, uploadImage } from '@/utils/upload';
 import { useMutation, useQuery } from 'convex/react';
 import { Image as ExpoImage } from 'expo-image';
@@ -28,6 +29,7 @@ export default function EditProductScreen() {
     const theme = useTheme();
     const insets = useSafeAreaInsets();
     const { id } = useLocalSearchParams<{ id: string }>();
+    const { sessionToken } = useAuthStore();
 
     // Convex Query
     const product = useQuery(api.products.get, { id: id as any });
@@ -98,6 +100,9 @@ export default function EditProductScreen() {
         setError(null);
 
         try {
+            if (!sessionToken) {
+                throw new Error('Session expired. Please log in again.');
+            }
             const finalImageUrls: string[] = [];
             for (const img of images) {
                 if (img.isExisting) {
@@ -109,6 +114,7 @@ export default function EditProductScreen() {
             }
 
             await updateProductMutation({
+                sessionToken: sessionToken as string,
                 id: id as any,
                 name: name.trim(),
                 description: description.trim(),

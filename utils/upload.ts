@@ -7,7 +7,10 @@ import * as ImagePicker from 'expo-image-picker';
 // We'll use the URL directly.
 
 // We need the convex URL. It's usually in .env.local as EXPO_PUBLIC_CONVEX_URL
-const convexUrl = process.env.EXPO_PUBLIC_CONVEX_URL || 'https://marvelous-wombat-394.convex.cloud'; // Fallback to provided URL if active
+const convexUrl = process.env.EXPO_PUBLIC_CONVEX_URL;
+if (!convexUrl) {
+    throw new Error('EXPO_PUBLIC_CONVEX_URL environment variable is required for uploads');
+}
 const convex = new ConvexHttpClient(convexUrl);
 
 export const pickImage = async (allowsMultiple = false, aspect: [number, number] = [1, 1]) => {
@@ -30,7 +33,7 @@ export const pickImage = async (allowsMultiple = false, aspect: [number, number]
     return result;
 };
 
-export const uploadImage = async (uri: string, base64: string | undefined | null, bucket: string, path: string): Promise<string> => {
+export const uploadImage = async (uri: string, _base64: string | undefined | null, _bucket: string, _path: string): Promise<string> => {
     try {
         // 1. Get Upload URL
         const uploadUrl = await convex.mutation(api.upload.generateUploadUrl);

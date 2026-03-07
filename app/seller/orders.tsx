@@ -22,13 +22,14 @@ const STATUS_FLOW: Record<OrderStatus, { next: OrderStatus | null; label: string
 export default function SellerOrdersScreen() {
     const theme = useTheme();
     const insets = useSafeAreaInsets();
-    const { convexUser } = useAuthStore();
+    const { sessionToken } = useAuthStore();
 
     // Convex Hooks
-    const orders = useQuery(api.orders.listIncomingOrders, { sellerId: convexUser?._id as any }) || [];
+    const orders = useQuery(api.orders.listIncomingOrders, sessionToken ? { sessionToken } : "skip");
     const updateOrderStatus = useMutation(api.orders.updateStatus);
 
     const loading = orders === undefined;
+    const sellerOrders = orders || [];
     
     // Shipping modal state
     const [shippingModalVisible, setShippingModalVisible] = useState(false);
@@ -41,6 +42,7 @@ export default function SellerOrdersScreen() {
         setUpdating(true);
         try {
             await updateOrderStatus({
+                sessionToken: sessionToken as string,
                 orderId: orderId as any,
                 status: newStatus,
                 trackingNumber: tracking,
@@ -237,7 +239,7 @@ export default function SellerOrdersScreen() {
                 </View>
             ) : (
                 <FlatList
-                    data={orders}
+                    data={sellerOrders}
                     renderItem={renderOrderItem}
                     keyExtractor={item => item?._id ?? ''}
                     contentContainerStyle={styles.listContent}

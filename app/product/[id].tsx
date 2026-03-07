@@ -39,7 +39,8 @@ export default function ProductDetailScreen() {
 
     // Convex Hooks
     const product = useQuery(api.products.get, { id: id as Id<"products"> });
-    const reviews = useQuery(api.reviews.listByProduct, { productId: id as Id<"products"> }) as Review[] || [];
+    const reviewsQuery = useQuery(api.reviews.listByProduct, { productId: id as Id<"products"> });
+    const reviews = (reviewsQuery ?? []) as Review[];
 
     const loading = product === undefined;
     const [snackbarVisible, setSnackbarVisible] = useState(false);
@@ -194,9 +195,9 @@ export default function ProductDetailScreen() {
                     <View style={styles.ratingRow}>
                         <LucideStar size={18} color="#FFB800" fill="#FFB800" />
                         <Text variant="bodyMedium" style={styles.ratingText}>
-                            {reviews.length > 0
-                                ? (reviews.reduce((acc: number, r: Review) => acc + r.rating, 0) / reviews.length).toFixed(1)
-                                : 'New'} ({reviews.length} reviews)
+                            {product.reviewCount
+                                ? (product.rating || 0).toFixed(1)
+                                : 'New'} ({product.reviewCount || 0} reviews)
                         </Text>
                         <View style={styles.locationRow}>
                             <LucideMapPin size={14} color="#64748B" />
@@ -257,13 +258,14 @@ export default function ProductDetailScreen() {
                                     </Chip>
                                 )}
                             </View>
-                            <View style={styles.sellerRating}>
-                                <LucideStar size={14} color="#FFB800" fill="#FFB800" />
-                                <Text variant="bodySmall">
-                                    {/* TODO: Add seller rating */}
-                                    New • 0 reviews
-                                </Text>
-                            </View>
+                    <View style={styles.sellerRating}>
+                        <LucideStar size={14} color="#FFB800" fill="#FFB800" />
+                        <Text variant="bodySmall">
+                                    {product.sellerAverageRating
+                                        ? `${product.sellerAverageRating.toFixed(1)} • ${product.sellerReviewCount} reviews`
+                                        : 'New seller'}
+                        </Text>
+                    </View>
                         </View>
                         <TouchableOpacity
                             style={[styles.chatButton, { backgroundColor: theme.colors.primaryContainer }]}
@@ -288,8 +290,8 @@ export default function ProductDetailScreen() {
                 {/* Reviews Section */}
                 <View style={styles.reviewsSection}>
                     <View style={styles.sectionHeaderReview}>
-                        <Text variant="titleMedium" style={styles.sectionTitle}>Reviews ({reviews.length})</Text>
-                        {reviews.length > 0 && (
+                        <Text variant="titleMedium" style={styles.sectionTitle}>Reviews ({product.reviewCount || 0})</Text>
+                        {product.reviewCount ? (
                             <Button
                                 mode="text"
                                 compact

@@ -1,91 +1,119 @@
 import { v } from "convex/values";
-import { internal } from "./_generated/api";
-import { mutation, query } from "./_generated/server";
+import { api, internal } from "./_generated/api";
+import { action, mutation, query } from "./_generated/server";
+import {
+    applyOrderInventoryIfNeeded,
+    assertOrderInventoryAvailable,
+    generateOrderNumber,
+    SHIPPING_FEE,
+} from "./lib/orders";
+import { assertSeller, requireSessionUser } from "./lib/session";
 
 export const create = mutation({
     args: {
-        buyerId: v.id("users"),
+        sessionToken: v.string(),
         addressId: v.id("addresses"),
         items: v.array(v.object({
             productId: v.id("products"),
-            sellerId: v.id("users"), // Required for efficient seller queries
             quantity: v.number(),
-            price: v.number(),
-            productName: v.string(),
-            productImage: v.optional(v.string()),
         })),
-        subtotal: v.number(),
-        shippingFee: v.number(),
-        total: v.number(),
         paymentMethod: v.union(v.literal("GCASH"), v.literal("MAYA"), v.literal("CARD"), v.literal("BANK_TRANSFER"), v.literal("COD")),
         buyerNotes: v.optional(v.string()),
     },
     handler: async (ctx, args) => {
-        const orderNumber = "ORD-" + Math.random().toString(36).toUpperCase().substring(2, 10);
+        const buyer = await requireSessionUser(ctx, args.sessionToken);
+        const address = await ctx.db.get(args.addressId);
+        if (!address || address.userId !== buyer._id) {
+            throw new Error("Invalid delivery address");
+        }
+
+        await assertOrderInventoryAvailable(ctx, args.items);
+
+        let subtotal = 0;
+        const lineItems = [];
+        for (const item of args.items) {
+            const product = await ctx.db.get(item.productId);
+            if (!product) {
+                throw new Error("Product not found");
+            }
+
+            const primaryImage = await ctx.db
+                .query("product_images")
+                .withIndex("by_product", (q) => q.eq("productId", product._id))
+                .first();
+
+            subtotal += product.price * item.quantity;
+            lineItems.push({
+                product,
+                quantity: item.quantity,
+                productImage: primaryImage?.imageUrl,
+            });
+        }
+
+        const shippingFee = SHIPPING_FEE;
+        const total = subtotal + shippingFee;
+        const orderNumber = generateOrderNumber();
 
         const orderId = await ctx.db.insert("orders", {
             orderNumber,
-            buyerId: args.buyerId,
+            buyerId: buyer._id,
             addressId: args.addressId,
-            subtotal: args.subtotal,
-            shippingFee: args.shippingFee,
-            total: args.total,
+            subtotal,
+            shippingFee,
+            total,
             paymentMethod: args.paymentMethod,
             paymentStatus: "PENDING",
             status: "PENDING",
             buyerNotes: args.buyerNotes,
         });
 
-        for (const item of args.items) {
+        for (const item of lineItems) {
             await ctx.db.insert("order_items", {
                 orderId,
-                productId: item.productId,
-                sellerId: item.sellerId, // Store sellerId for efficient queries
+                productId: item.product._id,
+                sellerId: item.product.sellerId,
                 quantity: item.quantity,
-                price: item.price,
-                subtotal: item.price * item.quantity,
-                productName: item.productName,
+                price: item.product.price,
+                subtotal: item.product.price * item.quantity,
+                productName: item.product.name,
                 productImage: item.productImage,
             });
-
-            // Update stock
-            const product = await ctx.db.get(item.productId);
-            if (product) {
-                await ctx.db.patch(item.productId, {
-                    stock: Math.max(0, product.stock - item.quantity),
-                    sales: (product.sales || 0) + item.quantity,
-                });
-
-                // Notify seller about new order
-                await ctx.runMutation(internal.notifications.create, {
-                    userId: product.sellerId,
-                    type: "NEW_ORDER",
-                    title: "New Order Received!",
-                    message: `You have a new order for ${item.productName} (x${item.quantity})`,
-                    data: { orderId, orderNumber, productId: item.productId },
-                });
-            }
         }
 
-        // Notify buyer about order confirmation
+        const order = await ctx.db.get(orderId);
+        if (!order) {
+            throw new Error("Failed to create order");
+        }
+
+        if (args.paymentMethod === "COD") {
+            await applyOrderInventoryIfNeeded(ctx, order);
+        }
+
         await ctx.runMutation(internal.notifications.create, {
-            userId: args.buyerId,
+            userId: buyer._id,
             type: "ORDER_UPDATE",
             title: "Order Placed Successfully",
             message: `Your order ${orderNumber} has been placed and is awaiting confirmation.`,
             data: { orderId, orderNumber },
         });
 
-        return orderId;
+        return {
+            orderId,
+            orderNumber,
+            status: order.status,
+            paymentStatus: order.paymentStatus,
+            total,
+        };
     },
 });
 
 export const listByBuyer = query({
-    args: { buyerId: v.id("users") },
+    args: { sessionToken: v.string() },
     handler: async (ctx, args) => {
+        const buyer = await requireSessionUser(ctx, args.sessionToken);
         const orders = await ctx.db
             .query("orders")
-            .withIndex("by_buyer", (q) => q.eq("buyerId", args.buyerId))
+            .withIndex("by_buyer", (q) => q.eq("buyerId", buyer._id))
             .collect();
 
         return await Promise.all(
@@ -101,31 +129,30 @@ export const listByBuyer = query({
 });
 
 export const listIncomingOrders = query({
-    args: { sellerId: v.id("users") },
+    args: { sessionToken: v.string() },
     handler: async (ctx, args) => {
-        // Efficiently query order items by sellerId using index
+        const seller = await requireSessionUser(ctx, args.sessionToken);
+        assertSeller(seller);
+
         const sellerItems = await ctx.db
             .query("order_items")
-            .withIndex("by_seller", (q) => q.eq("sellerId", args.sellerId))
+            .withIndex("by_seller", (q) => q.eq("sellerId", seller._id))
             .collect();
 
-        // Get unique order IDs
-        const orderIds = [...new Set(sellerItems.map(item => item.orderId))];
+        const orderIds = [...new Set(sellerItems.map((item) => item.orderId))];
 
-        // Fetch orders and enrich with buyer/address info
         const sellerOrders = await Promise.all(
             orderIds.map(async (orderId) => {
                 const order = await ctx.db.get(orderId);
-                if (!order) return null;
+                if (!order) {
+                    return null;
+                }
 
                 const items = await ctx.db
                     .query("order_items")
                     .withIndex("by_order", (q) => q.eq("orderId", orderId))
                     .collect();
-
-                // Only include items that belong to this seller
-                const sellerItemsForOrder = items.filter(item => item.sellerId === args.sellerId);
-
+                const sellerItemsForOrder = items.filter((item) => item.sellerId === seller._id);
                 const buyer = await ctx.db.get(order.buyerId);
                 const address = await ctx.db.get(order.addressId);
 
@@ -133,7 +160,7 @@ export const listIncomingOrders = query({
                     ...order,
                     items: sellerItemsForOrder,
                     buyer,
-                    address
+                    address,
                 };
             })
         );
@@ -144,44 +171,57 @@ export const listIncomingOrders = query({
 
 export const updateStatus = mutation({
     args: {
+        sessionToken: v.string(),
         orderId: v.id("orders"),
         status: v.union(v.literal("PENDING"), v.literal("CONFIRMED"), v.literal("PROCESSING"), v.literal("SHIPPED"), v.literal("DELIVERED"), v.literal("CANCELLED"), v.literal("REFUNDED")),
         trackingNumber: v.optional(v.string()),
         courier: v.optional(v.string()),
     },
     handler: async (ctx, args) => {
-        const order = await ctx.db.get(args.orderId);
-        if (!order) throw new Error("Order not found");
+        const seller = await requireSessionUser(ctx, args.sessionToken);
+        assertSeller(seller);
 
-        // Update status with timestamp
-        const updates: any = { status: args.status };
+        const order = await ctx.db.get(args.orderId);
+        if (!order) {
+            throw new Error("Order not found");
+        }
+
+        const sellerItems = await ctx.db
+            .query("order_items")
+            .withIndex("by_seller", (q) => q.eq("sellerId", seller._id))
+            .collect();
+        if (!sellerItems.some((item) => item.orderId === args.orderId)) {
+            throw new Error("Forbidden");
+        }
+
+        if (order.paymentMethod !== "COD" && order.paymentStatus !== "PAID" && args.status !== "CANCELLED") {
+            throw new Error("Order is awaiting payment confirmation");
+        }
+
+        const updates: Record<string, any> = { status: args.status };
         if (args.status === "CONFIRMED") updates.confirmedAt = Date.now();
         if (args.status === "SHIPPED") updates.shippedAt = Date.now();
         if (args.status === "DELIVERED") updates.deliveredAt = Date.now();
         if (args.status === "CANCELLED") updates.cancelledAt = Date.now();
-
-        // Add tracking info if provided
         if (args.trackingNumber) updates.trackingNumber = args.trackingNumber;
         if (args.courier) updates.courier = args.courier;
 
         await ctx.db.patch(args.orderId, updates);
 
-        // Status messages for notifications
         const statusMessages: Record<string, { title: string; message: string }> = {
             CONFIRMED: { title: "Order Confirmed", message: `Your order ${order.orderNumber} has been confirmed by the seller.` },
             PROCESSING: { title: "Order Processing", message: `Your order ${order.orderNumber} is being prepared.` },
-            SHIPPED: { 
-                title: "Order Shipped", 
-                message: args.trackingNumber 
-                    ? `Your order ${order.orderNumber} has been shipped! Tracking: ${args.trackingNumber}` 
-                    : `Your order ${order.orderNumber} has been shipped!`
+            SHIPPED: {
+                title: "Order Shipped",
+                message: args.trackingNumber
+                    ? `Your order ${order.orderNumber} has been shipped! Tracking: ${args.trackingNumber}`
+                    : `Your order ${order.orderNumber} has been shipped!`,
             },
             DELIVERED: { title: "Order Delivered", message: `Your order ${order.orderNumber} has been delivered. Enjoy!` },
             CANCELLED: { title: "Order Cancelled", message: `Your order ${order.orderNumber} has been cancelled.` },
             REFUNDED: { title: "Order Refunded", message: `Your order ${order.orderNumber} has been refunded.` },
         };
 
-        // Notify buyer about status change
         if (statusMessages[args.status]) {
             await ctx.runMutation(internal.notifications.create, {
                 userId: order.buyerId,
@@ -197,24 +237,44 @@ export const updateStatus = mutation({
 });
 
 export const get = query({
-    args: { id: v.id("orders") },
+    args: { sessionToken: v.string(), id: v.id("orders") },
     handler: async (ctx, args) => {
+        const actor = await requireSessionUser(ctx, args.sessionToken);
         const order = await ctx.db.get(args.id);
-        if (!order) return null;
+        if (!order) {
+            return null;
+        }
 
         const items = await ctx.db
             .query("order_items")
             .withIndex("by_order", (q) => q.eq("orderId", order._id))
             .collect();
+        const isBuyer = order.buyerId === actor._id;
+        const isSeller = items.some((item) => item.sellerId === actor._id);
+        if (!isBuyer && !isSeller && actor.role !== "ADMIN") {
+            throw new Error("Forbidden");
+        }
 
         const address = await ctx.db.get(order.addressId);
         const buyer = await ctx.db.get(order.buyerId);
 
         return {
             ...order,
-            items,
+            items: isSeller && !isBuyer ? items.filter((item) => item.sellerId === actor._id) : items,
             address,
-            buyer
+            buyer,
         };
+    },
+});
+
+export const retryPayment = action({
+    args: {
+        sessionToken: v.string(),
+        orderId: v.id("orders"),
+        successUrl: v.string(),
+        cancelUrl: v.string(),
+    },
+    handler: async (ctx, args) => {
+        return await ctx.runAction(api.paymongo.createCheckoutSession, args);
     },
 });

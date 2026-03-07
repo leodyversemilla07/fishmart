@@ -1,12 +1,14 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
+import { requireSessionUser } from "./lib/session";
 
 export const getConversations = query({
-    args: { userId: v.id("users") },
+    args: { sessionToken: v.string() },
     handler: async (ctx, args) => {
+        const user = await requireSessionUser(ctx, args.sessionToken);
         const participants = await ctx.db
             .query("conversation_participants")
-            .withIndex("by_user", (q) => q.eq("userId", args.userId))
+            .withIndex("by_user", (q) => q.eq("userId", user._id))
             .collect();
 
         return await Promise.all(
@@ -17,7 +19,7 @@ export const getConversations = query({
                     .withIndex("by_conversation", (q) => q.eq("conversationId", p.conversationId))
                     .collect();
 
-                const otherUserPart = otherParticipants.find(op => op.userId !== args.userId);
+                const otherUserPart = otherParticipants.find(op => op.userId !== user._id);
                 const otherUser = otherUserPart ? await ctx.db.get(otherUserPart.userId) : null;
 
                 const lastMessage = await ctx.db
@@ -38,13 +40,14 @@ export const getConversations = query({
 
 export const sendMessage = mutation({
     args: {
-        senderId: v.id("users"),
+        sessionToken: v.string(),
         recipientId: v.optional(v.id("users")),
         conversationId: v.optional(v.id("conversations")),
         productId: v.optional(v.id("products")),
         content: v.string(),
     },
     handler: async (ctx, args) => {
+        const actor = await requireSessionUser(ctx, args.sessionToken);
         let conversationId: any = args.conversationId;
 
         // If no conversationId provided, try to find one
@@ -55,7 +58,7 @@ export const sendMessage = mutation({
 
             const senderParts = await ctx.db
                 .query("conversation_participants")
-                .withIndex("by_user", (q) => q.eq("userId", args.senderId))
+                .withIndex("by_user", (q) => q.eq("userId", actor._id))
                 .collect();
 
             for (const part of senderParts) {
@@ -85,7 +88,7 @@ export const sendMessage = mutation({
             });
             await ctx.db.insert("conversation_participants", {
                 conversationId,
-                userId: args.senderId,
+                userId: actor._id,
                 joinedAt: Date.now(),
             });
             await ctx.db.insert("conversation_participants", {
@@ -99,9 +102,18 @@ export const sendMessage = mutation({
         // For Speed iteration, skipping strictly if not needed, but good practice.
         // Let's rely on standard flow.
 
+        const senderParticipant = await ctx.db
+            .query("conversation_participants")
+            .withIndex("by_conversation_user", (q) => q.eq("conversationId", conversationId).eq("userId", actor._id))
+            .unique();
+
+        if (!senderParticipant) {
+            throw new Error("Forbidden");
+        }
+
         const messageId = await ctx.db.insert("chat_messages", {
             conversationId,
-            senderId: args.senderId,
+            senderId: actor._id,
             content: args.content,
             isRead: false,
         });
@@ -111,8 +123,18 @@ export const sendMessage = mutation({
 });
 
 export const getMessages = query({
-    args: { conversationId: v.id("conversations") },
+    args: { sessionToken: v.string(), conversationId: v.id("conversations") },
     handler: async (ctx, args) => {
+        const user = await requireSessionUser(ctx, args.sessionToken);
+        const participant = await ctx.db
+            .query("conversation_participants")
+            .withIndex("by_conversation_user", (q) => q.eq("conversationId", args.conversationId).eq("userId", user._id))
+            .unique();
+
+        if (!participant) {
+            throw new Error("Forbidden");
+        }
+
         return await ctx.db
             .query("chat_messages")
             .withIndex("by_conversation", (q) => q.eq("conversationId", args.conversationId))

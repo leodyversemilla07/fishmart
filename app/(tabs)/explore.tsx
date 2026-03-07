@@ -41,7 +41,7 @@ function ProductCard({ product }: { product: Product }) {
         <View style={styles.ratingContainer}>
           <LucideStar size={12} color="#FFB800" fill="#FFB800" />
           <Text variant="bodySmall" style={styles.rating}>
-            {product.rating || 0} ({product.reviews?.length || 0})
+            {product.rating ? product.rating.toFixed(1) : 'New'} ({product.reviewCount || 0})
           </Text>
         </View>
       </View>
@@ -97,7 +97,7 @@ export default function ExploreScreen() {
   const [city, setCity] = useState('');
   const [sortBy, setSortBy] = useState('newest');
 
-  const loading = products === undefined || dbCategories === undefined;
+  const loading = products === undefined;
   const [refreshing, setRefreshing] = useState(false);
 
   const applyFilters = () => {

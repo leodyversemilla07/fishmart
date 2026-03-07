@@ -12,13 +12,17 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 export default function MyListingsScreen() {
     const theme = useTheme();
     const insets = useSafeAreaInsets();
-    const { convexUser } = useAuthStore();
+    const { convexUser, sessionToken } = useAuthStore();
 
     // Convex Hooks
-    const products = useQuery(api.products.list, { sellerId: convexUser?._id as any }) || [];
+    const productsQuery = useQuery(
+        api.products.list,
+        convexUser?._id ? { sellerId: convexUser._id as any } : "skip"
+    );
+    const products = productsQuery ?? [];
     const deleteProduct = useMutation(api.products.deleteProduct);
 
-    const loading = products === undefined;
+    const loading = productsQuery === undefined;
 
     const handleDelete = (id: string, name: string) => {
         Alert.alert(
@@ -31,7 +35,8 @@ export default function MyListingsScreen() {
                     style: 'destructive',
                     onPress: async () => {
                         try {
-                            await deleteProduct({ id: id as any });
+                            if (!sessionToken) return;
+                            await deleteProduct({ sessionToken, id: id as any });
                         } catch (err: any) {
                             Alert.alert('Error', err.message || 'Failed to delete product');
                         }

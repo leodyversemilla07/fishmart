@@ -25,14 +25,15 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 export default function AddressesScreen() {
     const theme = useTheme();
     const insets = useSafeAreaInsets();
-    const { convexUser } = useAuthStore();
+    const { sessionToken } = useAuthStore();
 
     // Convex Hooks
-    const addresses = useQuery(api.users.listAddresses, { userId: convexUser?._id as any }) || [];
+    const addressesQuery = useQuery(api.users.listAddresses, sessionToken ? { sessionToken } : "skip");
+    const addresses = addressesQuery ?? [];
     const deleteAddressMutation = useMutation(api.users.deleteAddress);
     const setDefaultAddressMutation = useMutation(api.users.setDefaultAddress);
 
-    const loading = addresses === undefined;
+    const loading = addressesQuery === undefined;
 
     const handleDelete = (id: string, fullName: string) => {
         Alert.alert(
@@ -45,7 +46,8 @@ export default function AddressesScreen() {
                     style: 'destructive',
                     onPress: async () => {
                         try {
-                            await deleteAddressMutation({ id: id as any });
+                            if (!sessionToken) return;
+                            await deleteAddressMutation({ sessionToken, id: id as any });
                         } catch (err: any) {
                             Alert.alert('Error', err.message || 'Failed to delete address');
                         }
@@ -57,7 +59,8 @@ export default function AddressesScreen() {
 
     const handleSetDefault = async (id: string) => {
         try {
-            await setDefaultAddressMutation({ id: id as any, userId: convexUser?._id as any });
+            if (!sessionToken) return;
+            await setDefaultAddressMutation({ sessionToken, id: id as any });
         } catch (err: any) {
             Alert.alert('Error', err.message || 'Failed to set default address');
         }

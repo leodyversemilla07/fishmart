@@ -20,6 +20,15 @@ export default defineSchema({
     })
         .index("by_email", ["email"]),
 
+    sessions: defineTable({
+        userId: v.id("users"),
+        tokenHash: v.string(),
+        expiresAt: v.number(),
+        revokedAt: v.optional(v.number()),
+    })
+        .index("by_tokenHash", ["tokenHash"])
+        .index("by_user", ["userId"]),
+
     addresses: defineTable({
         userId: v.id("users"),
         firstName: v.string(),
@@ -96,6 +105,7 @@ export default defineSchema({
         shippedAt: v.optional(v.number()),
         deliveredAt: v.optional(v.number()),
         cancelledAt: v.optional(v.number()),
+        inventoryCommittedAt: v.optional(v.number()),
     })
         .index("by_orderNumber", ["orderNumber"])
         .index("by_buyer", ["buyerId"])
@@ -119,6 +129,7 @@ export default defineSchema({
         amount: v.number(),
         paymentMethod: v.union(v.literal("GCASH"), v.literal("MAYA"), v.literal("CARD"), v.literal("BANK_TRANSFER"), v.literal("COD")),
         status: v.union(v.literal("PENDING"), v.literal("PROCESSING"), v.literal("PAID"), v.literal("FAILED"), v.literal("REFUNDED")),
+        checkoutSessionId: v.optional(v.string()),
         paymentIntentId: v.optional(v.string()),
         sourceId: v.optional(v.string()),
         transactionId: v.optional(v.string()),
@@ -129,6 +140,7 @@ export default defineSchema({
         metadata: v.optional(v.any()),
     })
         .index("by_order", ["orderId"])
+        .index("by_checkoutSessionId", ["checkoutSessionId"])
         .index("by_paymentIntentId", ["paymentIntentId"]),
 
     reviews: defineTable({

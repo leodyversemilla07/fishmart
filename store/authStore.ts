@@ -22,11 +22,12 @@ export interface ConvexUser {
 interface AuthState {
     user: ConvexUser | null;
     convexUser: ConvexUser | null; // Alias
+    sessionToken: string | null;
     isAuthenticated: boolean;
     initialized: boolean;
 
     // Actions
-    login: (user: ConvexUser) => void;
+    login: (user: ConvexUser, sessionToken: string) => void;
     logout: () => void;
     setInitialized: (val: boolean) => void;
     updateUser: (updates: Partial<ConvexUser>) => void;
@@ -37,14 +38,16 @@ export const useAuthStore = create<AuthState>()(
         (set, get) => ({
             user: null,
             convexUser: null,
+            sessionToken: null,
             isAuthenticated: false,
             initialized: false,
 
-            login: (user) => {
+            login: (user, sessionToken) => {
                 const userWithId = { ...user, id: user._id };
                 set({
                     user: userWithId,
                     convexUser: userWithId,
+                    sessionToken,
                     isAuthenticated: true
                 });
             },
@@ -53,6 +56,7 @@ export const useAuthStore = create<AuthState>()(
                 set({
                     user: null,
                     convexUser: null,
+                    sessionToken: null,
                     isAuthenticated: false
                 });
             },
@@ -71,7 +75,7 @@ export const useAuthStore = create<AuthState>()(
         {
             name: 'auth-storage',
             storage: createJSONStorage(() => AsyncStorage),
-            partialize: (state) => ({ user: state.user, convexUser: state.convexUser, isAuthenticated: state.isAuthenticated }),
+            partialize: (state) => ({ user: state.user, convexUser: state.convexUser, sessionToken: state.sessionToken, isAuthenticated: state.isAuthenticated }),
         }
     )
 );

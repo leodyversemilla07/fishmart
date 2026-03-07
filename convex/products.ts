@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
+import { assertSeller, requireSessionUser } from "./lib/session";
 
 const resolveUrl = async (ctx: any, url: string) => {
     if (!url) return null;
@@ -71,7 +72,21 @@ export const list = query({
                     imageUrl: await resolveUrl(ctx, img.imageUrl) || img.imageUrl
                 })));
 
-                return { ...product, images: resolvedImages };
+                const category = await ctx.db.get(product.categoryId);
+                const reviews = await ctx.db
+                    .query("reviews")
+                    .withIndex("by_product", (q) => q.eq("productId", product._id))
+                    .collect();
+
+                return {
+                    ...product,
+                    images: resolvedImages,
+                    category: category ? { _id: category._id, name: category.name, slug: category.slug } : null,
+                    rating: reviews.length > 0
+                        ? reviews.reduce((sum, review) => sum + review.rating, 0) / reviews.length
+                        : null,
+                    reviewCount: reviews.length,
+                };
             })
         );
 
@@ -103,14 +118,45 @@ export const get = query({
         }
 
         const category = await ctx.db.get(product.categoryId);
+        const productReviews = await ctx.db
+            .query("reviews")
+            .withIndex("by_product", (q) => q.eq("productId", product._id))
+            .collect();
+        const sellerProducts = seller
+            ? await ctx.db
+                .query("products")
+                .withIndex("by_seller", (q) => q.eq("sellerId", seller._id))
+                .collect()
+            : [];
+        let sellerReviewCount = 0;
+        let sellerRatingSum = 0;
+        for (const sellerProduct of sellerProducts) {
+            const reviews = await ctx.db
+                .query("reviews")
+                .withIndex("by_product", (q) => q.eq("productId", sellerProduct._id))
+                .collect();
+            sellerReviewCount += reviews.length;
+            sellerRatingSum += reviews.reduce((sum, review) => sum + review.rating, 0);
+        }
 
-        return { ...product, images: resolvedImages, seller, category };
+        return {
+            ...product,
+            images: resolvedImages,
+            seller,
+            category,
+            rating: productReviews.length > 0
+                ? productReviews.reduce((sum, review) => sum + review.rating, 0) / productReviews.length
+                : null,
+            reviewCount: productReviews.length,
+            sellerAverageRating: sellerReviewCount > 0 ? sellerRatingSum / sellerReviewCount : null,
+            sellerReviewCount,
+        };
     },
 });
 
 export const create = mutation({
     args: {
-        sellerId: v.id("users"),
+        sessionToken: v.string(),
         categoryId: v.id("categories"),
         name: v.string(),
         description: v.string(),
@@ -121,10 +167,14 @@ export const create = mutation({
         images: v.array(v.string()),
     },
     handler: async (ctx, args) => {
-        const { images, ...productData } = args;
+        const seller = await requireSessionUser(ctx, args.sessionToken);
+        assertSeller(seller);
+
+        const { images, sessionToken, ...productData } = args;
 
         const productId = await ctx.db.insert("products", {
             ...productData,
+            sellerId: seller._id,
             slug: args.name.toLowerCase().replace(/ /g, "-") + "-" + Date.now(),
             status: "ACTIVE",
             views: 0,
@@ -146,8 +196,17 @@ export const create = mutation({
 });
 
 export const deleteProduct = mutation({
-    args: { id: v.id("products") },
+    args: { sessionToken: v.string(), id: v.id("products") },
     handler: async (ctx, args) => {
+        const seller = await requireSessionUser(ctx, args.sessionToken);
+        const product = await ctx.db.get(args.id);
+        if (!product) {
+            throw new Error("Product not found");
+        }
+        if (product.sellerId !== seller._id && seller.role !== "ADMIN") {
+            throw new Error("Forbidden");
+        }
+
         // Delete images first
         const images = await ctx.db
             .query("product_images")
@@ -166,6 +225,7 @@ export const deleteProduct = mutation({
 
 export const update = mutation({
     args: {
+        sessionToken: v.string(),
         id: v.id("products"),
         name: v.optional(v.string()),
         description: v.optional(v.string()),
@@ -177,7 +237,16 @@ export const update = mutation({
         images: v.optional(v.array(v.string())),
     },
     handler: async (ctx, args) => {
-        const { id, images, ...updates } = args;
+        const seller = await requireSessionUser(ctx, args.sessionToken);
+        const product = await ctx.db.get(args.id);
+        if (!product) {
+            throw new Error("Product not found");
+        }
+        if (product.sellerId !== seller._id && seller.role !== "ADMIN") {
+            throw new Error("Forbidden");
+        }
+
+        const { id, images, sessionToken, ...updates } = args;
 
         if (Object.keys(updates).length > 0) {
             await ctx.db.patch(id, updates as any);

@@ -16,7 +16,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 export default function SellScreen() {
     const theme = useTheme();
     const insets = useSafeAreaInsets();
-    const { isAuthenticated, convexUser } = useAuthStore();
+    const { isAuthenticated, sessionToken } = useAuthStore();
 
     // Convex Hooks
     const categories = useQuery(api.categories.list) || [];
@@ -140,7 +140,7 @@ export default function SellScreen() {
             setError('Please select a city or municipality');
             return;
         }
-        if (!isAuthenticated || !convexUser) {
+        if (!isAuthenticated || !sessionToken) {
             Alert.alert('Login Required', 'Please login to list a product', [
                 { text: 'Login', onPress: () => router.push('/login') },
                 { text: 'Cancel', style: 'cancel' },
@@ -161,7 +161,7 @@ export default function SellScreen() {
 
             // Call Convex mutation
             await createProduct({
-                sellerId: convexUser!._id as Id<"users">,
+                sessionToken,
                 name: name.trim(),
                 description: description.trim(),
                 price: parseFloat(price),

@@ -67,9 +67,12 @@ export interface Product {
     sales: number;
     images?: Array<{ imageUrl: string }>; // Joined field
     rating?: number; // Calculated/joined field
+    reviewCount?: number;
     reviews?: Array<Review>; // Joined field
     seller?: User | null; // Joined field
     category?: Category | null; // Joined field
+    sellerAverageRating?: number | null;
+    sellerReviewCount?: number;
 }
 
 export interface OrderItem {

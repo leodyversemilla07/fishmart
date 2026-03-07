@@ -1,7 +1,9 @@
 import { api } from '@/convex/_generated/api';
 import { useAuthStore } from '@/store/authStore';
 import { Order } from '@/types';
-import { useQuery } from 'convex/react';
+import { useAction, useQuery } from 'convex/react';
+import * as Linking from 'expo-linking';
+import * as WebBrowser from 'expo-web-browser';
 import { router } from 'expo-router';
 import { LucideArrowLeft, LucideBox, LucideChevronRight } from 'lucide-react-native';
 import React from 'react';
@@ -12,11 +14,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 export default function OrdersScreen() {
     const theme = useTheme();
     const insets = useSafeAreaInsets();
-    const { convexUser } = useAuthStore();
+    const { sessionToken } = useAuthStore();
 
     // Convex Query
-    const orders = useQuery(api.orders.listByBuyer, convexUser ? { buyerId: convexUser._id as any } : "skip") || [];
+    const orders = useQuery(api.orders.listByBuyer, sessionToken ? { sessionToken } : "skip");
+    const retryPayment = useAction(api.orders.retryPayment);
     const loading = orders === undefined;
+    const orderList = orders || [];
 
     const getStatusColor = (status: string) => {
         switch (status) {
@@ -29,7 +33,33 @@ export default function OrdersScreen() {
         }
     };
 
+    const handleRetryPayment = async (orderId: string) => {
+        if (!sessionToken) return;
+        try {
+            const successUrl = Linking.createURL('payment-success', { queryParams: { orderId } });
+            const cancelUrl = Linking.createURL('payment-cancelled', { queryParams: { orderId } });
+            const result = await retryPayment({
+                sessionToken,
+                orderId: orderId as any,
+                successUrl,
+                cancelUrl,
+            });
+
+            if ('error' in result) {
+                return;
+            }
+
+            await WebBrowser.openBrowserAsync(result.checkoutUrl, {
+                dismissButtonStyle: 'cancel',
+                presentationStyle: WebBrowser.WebBrowserPresentationStyle.FULL_SCREEN,
+            });
+        } catch (error) {
+            console.error('Failed to retry payment:', error);
+        }
+    };
+
     const renderOrderItem = ({ item }: { item: Order }) => {
+        const showRetry = item.paymentMethod !== 'COD' && item.paymentStatus !== 'PAID' && item.status === 'PENDING';
         return (
             <Card style={styles.orderCard} onPress={() => router.push({ pathname: '/orders/[id]', params: { id: item._id } })}>
                 <Card.Content>
@@ -62,6 +92,11 @@ export default function OrdersScreen() {
                         <Text variant="bodySmall" style={styles.itemCount}>{item.items.length} items</Text>
                         <Text variant="titleMedium" style={styles.totalPrice}>₱{item.total.toLocaleString()}</Text>
                     </View>
+                    {showRetry && (
+                        <TouchableOpacity onPress={() => handleRetryPayment(item._id as any)}>
+                            <Text style={[styles.retryText, { color: theme.colors.primary }]}>Retry Payment</Text>
+                        </TouchableOpacity>
+                    )}
                 </Card.Content>
             </Card>
         );
@@ -84,7 +119,7 @@ export default function OrdersScreen() {
                 </View>
             ) : (
                 <FlatList
-                    data={orders}
+                    data={orderList}
                     renderItem={renderOrderItem}
                     keyExtractor={item => item._id}
                     contentContainerStyle={styles.listContent}
@@ -203,5 +238,9 @@ const styles = StyleSheet.create({
     browseText: {
         marginTop: 20,
         fontWeight: 'bold',
+    },
+    retryText: {
+        marginTop: 10,
+        fontWeight: '700',
     }
 });

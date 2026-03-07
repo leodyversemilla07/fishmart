@@ -13,21 +13,23 @@ import { ActivityIndicator, Avatar, Badge, Button, Card, Searchbar, Text, useThe
 export default function HomeScreen() {
   const theme = useTheme();
   const cartCount = useCartStore((state) => state.totalItems());
-  const { convexUser } = useAuthStore();
+  const { sessionToken } = useAuthStore();
 
   const [searchQuery, setSearchQuery] = useState('');
 
   // Use Convex hooks instead of local state and useEffect
-  const categories = useQuery(api.categories.list) || [];
-  const featuredProducts = useQuery(api.products.list, { status: "ACTIVE" }) || [];
+  const categoriesQuery = useQuery(api.categories.list);
+  const featuredProductsQuery = useQuery(api.products.list, { status: "ACTIVE" });
+  const categories = categoriesQuery ?? [];
+  const featuredProducts = featuredProductsQuery ?? [];
 
   // Fetch unread notification count
   const unreadCount = useQuery(
     api.notifications.getUnreadCount,
-    convexUser?._id ? { userId: convexUser._id as any } : "skip"
+    sessionToken ? { sessionToken } : "skip"
   ) ?? 0;
 
-  const loading = categories === undefined || featuredProducts === undefined;
+  const loading = categoriesQuery === undefined || featuredProductsQuery === undefined;
   const [refreshing, setRefreshing] = useState(false);
 
   const onRefresh = () => {
@@ -159,7 +161,7 @@ export default function HomeScreen() {
                 <Card.Content style={styles.productContent}>
                   <Text variant="titleMedium" numberOfLines={1}>{product.name}</Text>
                   <Text variant="bodySmall" style={{ color: theme.colors.secondary }} numberOfLines={1}>
-                    {product.categoryId}
+                    {product.category?.name || 'Fish'}
                   </Text>
                   <Text variant="titleLarge" style={styles.price}>₱{product.price?.toLocaleString()}</Text>
                 </Card.Content>
