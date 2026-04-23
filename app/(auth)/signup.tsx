@@ -3,6 +3,7 @@ import { useAction } from 'convex/react';
 import { Image } from 'expo-image';
 import { Link, router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import * as Haptics from 'expo-haptics';
 import { useState } from 'react';
 import { Alert, ImageBackground, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, View } from 'react-native';
 import { Button, HelperText, Text, TextInput, useTheme } from 'react-native-paper';
@@ -23,13 +24,12 @@ export default function SignupScreen() {
     const handleSignup = async () => {
         if (!email || !password || !firstName || !lastName) {
             setError('Please fill in all required fields');
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
             return;
         }
 
         setLoading(true);
         setError(null);
-
-
 
         try {
             const result = await signUpAction({
@@ -43,13 +43,17 @@ export default function SignupScreen() {
 
             if ('error' in result) {
                 setError(result.error);
+                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
                 return;
             }
 
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
             Alert.alert('Success', 'Account created! Please sign in.');
             router.replace('/login');
-        } catch (err: any) {
-            setError(err.message || 'An unexpected error occurred');
+        } catch (err) {
+            const message = err instanceof Error ? err.message : 'An unexpected error occurred';
+            setError(message);
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
         } finally {
             setLoading(false);
         }
@@ -72,7 +76,7 @@ export default function SignupScreen() {
                             <View style={styles.header}>
                                 <Image
                                     source={require('@/assets/images/logo.png')}
-                                    style={styles.logo as any}
+                                    style={styles.logo}
                                     contentFit="contain"
                                 />
 
@@ -150,7 +154,7 @@ export default function SignupScreen() {
                                 <View style={styles.footer}>
                                     <Text variant="bodyMedium" style={{ color: '#666' }}>Already have an account? </Text>
                                     <Link href="/login" asChild>
-                                        <Button mode="text" compact labelStyle={{ color: theme.colors.primary, fontWeight: 'bold' }}>
+                                        <Button mode="text" contentStyle={styles.textButtonContent} labelStyle={{ color: theme.colors.primary, fontWeight: 'bold' }}>
                                             Sign In
                                         </Button>
                                     </Link>
@@ -222,7 +226,11 @@ const styles = StyleSheet.create({
         marginTop: 16,
     },
     signupButtonContent: {
-        paddingVertical: 8,
+        paddingVertical: 12,
+    },
+    textButtonContent: {
+        paddingVertical: 4,
+        paddingHorizontal: 8,
     },
     footer: {
         flexDirection: 'row',

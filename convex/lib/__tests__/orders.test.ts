@@ -1,38 +1,66 @@
-import { applyOrderInventoryIfNeeded } from '../orders';
+import {
+  applyOrderInventoryIfNeededForTests,
+  getReservationExpiryTimestamp,
+  revertOrderInventoryIfCommittedForTests,
+} from '../orders';
+import type { Id, TableNames } from '../../_generated/dataModel';
+import type { InventoryMutationTestContext } from '../orders';
+
+function toId<TableName extends TableNames>(value: string): Id<TableName> {
+  return value as Id<TableName>;
+}
 
 function createCtx() {
-  const products = new Map([
-    ['product-1', { _id: 'product-1', name: 'Fish Pair', status: 'ACTIVE', stock: 5, sales: 1 }],
+  const productId = toId<'products'>('product-1');
+  const orderId = toId<'orders'>('order-1');
+  const sellerId = toId<'users'>('seller-1');
+
+  const products = new Map<
+    string,
+    { name: string; status: 'ACTIVE' | 'INACTIVE' | 'OUT_OF_STOCK'; stock: number; sales: number }
+  >([
+    [String(productId), { name: 'Fish Pair', status: 'ACTIVE', stock: 5, sales: 1 }],
   ]);
-  const orders = new Map([
-    ['order-1', { _id: 'order-1', orderNumber: 'ORD-1', inventoryCommittedAt: undefined }],
+  const orders = new Map<
+    string,
+    { _id: Id<'orders'>; orderNumber: string; inventoryCommittedAt: number | undefined }
+  >([
+    [String(orderId), { _id: orderId, orderNumber: 'ORD-1', inventoryCommittedAt: undefined }],
   ]);
   const orderItems = [
     {
-      _id: 'item-1',
-      orderId: 'order-1',
-      productId: 'product-1',
-      sellerId: 'seller-1',
+      productId,
+      sellerId,
       quantity: 2,
       productName: 'Fish Pair',
     },
   ];
-  const notifications: any[] = [];
+  const notifications: unknown[] = [];
 
-  const ctx: any = {
+  const ctx: InventoryMutationTestContext = {
     db: {
-      get: jest.fn(async (id: string) => products.get(id) || orders.get(id) || null),
-      patch: jest.fn(async (id: string, updates: Record<string, unknown>) => {
-        if (products.has(id)) {
-          products.set(id, { ...products.get(id), ...updates });
+      get: jest.fn(async (id) => products.get(String(id)) || null),
+      patch: jest.fn(async (id, updates) => {
+        const key = String(id);
+        if (products.has(key)) {
+          const current = products.get(key);
+          if (current) {
+            products.set(key, { ...current, ...updates });
+          }
           return;
         }
-        if (orders.has(id)) {
-          orders.set(id, { ...orders.get(id), ...updates });
+        if (orders.has(key)) {
+          const current = orders.get(key);
+          if (current) {
+            orders.set(key, { ...current, ...updates });
+          }
         }
       }),
-      query: jest.fn((table: string) => ({
-        withIndex: (_index: string, callback: any) => {
+      query: jest.fn((table: 'order_items') => ({
+        withIndex: (
+          _index: 'by_order',
+          callback: (q: { eq: (field: 'orderId', value: Id<'orders'>) => unknown }) => unknown
+        ) => {
           callback({ eq: jest.fn().mockReturnThis() });
           if (table === 'order_items') {
             return {
@@ -48,20 +76,53 @@ function createCtx() {
     }),
   };
 
-  return { ctx, products, orders, notifications };
+  return { ctx, products, orders, notifications, orderId, productId };
 }
 
 describe('order inventory helper', () => {
   it('applies stock and notifications only once', async () => {
-    const { ctx, products, orders, notifications } = createCtx();
+    const { ctx, products, orders, notifications, orderId, productId } = createCtx();
 
-    const first = await applyOrderInventoryIfNeeded(ctx, orders.get('order-1') as any);
-    const second = await applyOrderInventoryIfNeeded(ctx, orders.get('order-1') as any);
+    const order = orders.get(String(orderId));
+    if (!order) throw new Error('Order not found');
+    const first = await applyOrderInventoryIfNeededForTests(ctx, order);
+    const updatedOrder = orders.get(String(orderId));
+    if (!updatedOrder) throw new Error('Updated order not found');
+    const second = await applyOrderInventoryIfNeededForTests(ctx, updatedOrder);
 
     expect(first).toBe(true);
     expect(second).toBe(false);
-    expect(products.get('product-1')).toMatchObject({ stock: 3, sales: 3 });
-    expect(orders.get('order-1')?.inventoryCommittedAt).toBeDefined();
+    expect(products.get(String(productId))).toMatchObject({ stock: 3, sales: 3 });
+    expect(orders.get(String(orderId))?.inventoryCommittedAt).toBeDefined();
     expect(notifications).toHaveLength(1);
+  });
+
+  it('reverts committed inventory once', async () => {
+    const { ctx, products, orders, orderId, productId } = createCtx();
+
+    const order = orders.get(String(orderId));
+    if (!order) throw new Error('Order not found');
+
+    await applyOrderInventoryIfNeededForTests(ctx, order);
+    const committedOrder = orders.get(String(orderId));
+    if (!committedOrder) throw new Error('Committed order not found');
+
+    const firstRevert = await revertOrderInventoryIfCommittedForTests(ctx, committedOrder);
+    const secondOrderState = orders.get(String(orderId));
+    if (!secondOrderState) throw new Error('Reverted order not found');
+    const secondRevert = await revertOrderInventoryIfCommittedForTests(ctx, secondOrderState);
+
+    expect(firstRevert).toBe(true);
+    expect(secondRevert).toBe(false);
+    expect(products.get(String(productId))).toMatchObject({ stock: 5, sales: 1 });
+  });
+
+  it('returns reservation expiry for non-COD methods', () => {
+    const base = 1_700_000_000_000;
+    const codExpiry = getReservationExpiryTimestamp('COD', base);
+    const onlineExpiry = getReservationExpiryTimestamp('GCASH', base);
+
+    expect(codExpiry).toBeUndefined();
+    expect(onlineExpiry).toBeGreaterThan(base);
   });
 });

@@ -1,48 +1,90 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { Doc, Id } from "./_generated/dataModel";
-import { action, internalMutation, internalQuery, query } from "./_generated/server";
+import { action, internalMutation, internalQuery } from "./_generated/server";
 import { generateSessionToken, getSessionRecord, hashSessionToken, SESSION_DURATION_MS } from "./lib/session";
 
-// Salt length in bytes (16 bytes = 128 bits, industry standard)
 const SALT_LENGTH = 16;
+const PBKDF2_ITERATIONS = 210_000;
+const PBKDF2_HASH_BITS = 256;
 
-/**
- * Generate a cryptographically secure random salt
- */
+function bytesToHex(bytes: Uint8Array): string {
+    return Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+function hexToBytes(hex: string): Uint8Array {
+    if (hex.length % 2 !== 0) {
+        throw new Error("Invalid hex string");
+    }
+    const bytes = new Uint8Array(hex.length / 2);
+    for (let i = 0; i < hex.length; i += 2) {
+        bytes[i / 2] = parseInt(hex.substring(i, i + 2), 16);
+    }
+    return bytes;
+}
+
 function generateSalt(): string {
     const saltBytes = new Uint8Array(SALT_LENGTH);
     crypto.getRandomValues(saltBytes);
-    return Array.from(saltBytes).map(b => b.toString(16).padStart(2, '0')).join('');
+    return bytesToHex(saltBytes);
 }
 
-/**
- * Hash password with salt using SHA-256
- * Format: hash(salt + password)
- */
-async function hashPassword(password: string, salt: string): Promise<string> {
+async function hashPasswordLegacySha256(password: string, salt: string): Promise<string> {
     const encoder = new TextEncoder();
     const data = encoder.encode(salt + password);
-    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+    return bytesToHex(new Uint8Array(hashBuffer));
 }
 
-/**
- * Verify password against stored hash and salt
- */
+async function hashPasswordPbkdf2(password: string, saltHex: string, iterations = PBKDF2_ITERATIONS): Promise<string> {
+    const passwordKey = await crypto.subtle.importKey(
+        "raw",
+        new TextEncoder().encode(password),
+        "PBKDF2",
+        false,
+        ["deriveBits"]
+    );
+
+    const saltBytes = hexToBytes(saltHex);
+    const saltBuffer = new ArrayBuffer(saltBytes.length);
+    new Uint8Array(saltBuffer).set(saltBytes);
+
+    const derivedBits = await crypto.subtle.deriveBits(
+        {
+            name: "PBKDF2",
+            salt: saltBuffer,
+            iterations,
+            hash: "SHA-256",
+        },
+        passwordKey,
+        PBKDF2_HASH_BITS
+    );
+
+    return `pbkdf2$${iterations}$${bytesToHex(new Uint8Array(derivedBits))}`;
+}
+
 async function verifyPassword(password: string, storedHash: string, salt: string | undefined): Promise<boolean> {
+    if (storedHash.startsWith("pbkdf2$")) {
+        if (!salt) return false;
+        const [, iterationStr, expectedHash] = storedHash.split("$");
+        const iterations = Number.parseInt(iterationStr ?? "", 10);
+        if (!Number.isFinite(iterations) || iterations < 10_000 || !expectedHash) {
+            return false;
+        }
+
+        const computed = await hashPasswordPbkdf2(password, salt, iterations);
+        return computed === storedHash;
+    }
+
     if (!salt) {
-        // Legacy password without salt - hash directly for backward compatibility
         const encoder = new TextEncoder();
         const data = encoder.encode(password);
-        const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-        const hashArray = Array.from(new Uint8Array(hashBuffer));
-        const legacyHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+        const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+        const legacyHash = bytesToHex(new Uint8Array(hashBuffer));
         return legacyHash === storedHash;
     }
-    
-    const hashedInput = await hashPassword(password, salt);
+
+    const hashedInput = await hashPasswordLegacySha256(password, salt);
     return hashedInput === storedHash;
 }
 
@@ -55,7 +97,7 @@ export const signIn = action({
             return { error: "Invalid email or password" };
         }
 
-        const isValid = await verifyPassword(args.password, user.password, (user as any).passwordSalt);
+        const isValid = await verifyPassword(args.password, user.password, user.passwordSalt);
         if (!isValid) {
             return { error: "Invalid email or password" };
         }
@@ -86,9 +128,8 @@ export const signUp = action({
             return { error: "Email already in use" };
         }
 
-        // Generate salt and hash password
         const salt = generateSalt();
-        const hashedPassword = await hashPassword(args.password, salt);
+        const hashedPassword = await hashPasswordPbkdf2(args.password, salt);
 
         const userId = await ctx.runMutation(internal.users.createUser, {
             email: args.email,
@@ -154,8 +195,3 @@ export const getSessionUser = internalQuery({
     },
 });
 
-// Internal helpers to access DB from Actions
-
-export const dummy = query({
-    handler: async () => { return "dummy" }
-})

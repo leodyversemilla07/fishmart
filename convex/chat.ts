@@ -1,6 +1,33 @@
 import { v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import { Id } from "./_generated/dataModel";
+import { MutationCtx, QueryCtx, mutation, query } from "./_generated/server";
 import { requireSessionUser } from "./lib/session";
+
+async function findConversationBetweenUsers(
+    ctx: QueryCtx | MutationCtx,
+    actorId: Id<"users">,
+    recipientId: Id<"users">
+): Promise<Id<"conversations"> | null> {
+    const senderParts = await ctx.db
+        .query("conversation_participants")
+        .withIndex("by_user", (q) => q.eq("userId", actorId))
+        .collect();
+
+    for (const part of senderParts) {
+        const otherPart = await ctx.db
+            .query("conversation_participants")
+            .withIndex("by_conversation_user", (q) =>
+                q.eq("conversationId", part.conversationId).eq("userId", recipientId)
+            )
+            .unique();
+
+        if (otherPart) {
+            return part.conversationId;
+        }
+    }
+
+    return null;
+}
 
 export const getConversations = query({
     args: { sessionToken: v.string() },
@@ -38,6 +65,46 @@ export const getConversations = query({
     },
 });
 
+export const ensureConversation = mutation({
+    args: {
+        sessionToken: v.string(),
+        recipientId: v.id("users"),
+        productId: v.optional(v.id("products")),
+    },
+    handler: async (ctx, args) => {
+        const actor = await requireSessionUser(ctx, args.sessionToken);
+
+        if (actor._id === args.recipientId) {
+            throw new Error("Cannot start a conversation with yourself");
+        }
+
+        const recipient = await ctx.db.get(args.recipientId);
+        if (!recipient || !recipient.isActive) {
+            throw new Error("Recipient not found");
+        }
+
+        let conversationId = await findConversationBetweenUsers(ctx, actor._id, args.recipientId);
+
+        if (!conversationId) {
+            conversationId = await ctx.db.insert("conversations", {
+                productId: args.productId,
+            });
+            await ctx.db.insert("conversation_participants", {
+                conversationId,
+                userId: actor._id,
+                joinedAt: Date.now(),
+            });
+            await ctx.db.insert("conversation_participants", {
+                conversationId,
+                userId: args.recipientId,
+                joinedAt: Date.now(),
+            });
+        }
+
+        return { conversationId };
+    },
+});
+
 export const sendMessage = mutation({
     args: {
         sessionToken: v.string(),
@@ -48,32 +115,16 @@ export const sendMessage = mutation({
     },
     handler: async (ctx, args) => {
         const actor = await requireSessionUser(ctx, args.sessionToken);
-        let conversationId: any = args.conversationId;
+        let conversationId: Id<"conversations"> | undefined = args.conversationId;
 
         // If no conversationId provided, try to find one
         if (!conversationId) {
             if (!args.recipientId) {
                 throw new Error("Recipient ID is required if Conversation ID is not provided.");
             }
+            const recipientId = args.recipientId;
 
-            const senderParts = await ctx.db
-                .query("conversation_participants")
-                .withIndex("by_user", (q) => q.eq("userId", actor._id))
-                .collect();
-
-            for (const part of senderParts) {
-                const otherPart = await ctx.db
-                    .query("conversation_participants")
-                    .withIndex("by_conversation_user", (q) =>
-                        q.eq("conversationId", part.conversationId).eq("userId", args.recipientId!)
-                    )
-                    .unique();
-
-                if (otherPart) {
-                    conversationId = part.conversationId;
-                    break;
-                }
-            }
+            conversationId = await findConversationBetweenUsers(ctx, actor._id, recipientId) ?? undefined;
         }
 
         // If still no conversationId, create one

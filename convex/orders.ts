@@ -1,10 +1,12 @@
 import { v } from "convex/values";
 import { api, internal } from "./_generated/api";
-import { action, mutation, query } from "./_generated/server";
+import { action, internalMutation, MutationCtx, mutation, query } from "./_generated/server";
 import {
     applyOrderInventoryIfNeeded,
     assertOrderInventoryAvailable,
     generateOrderNumber,
+    getReservationExpiryTimestamp,
+    revertOrderInventoryIfCommitted,
     SHIPPING_FEE,
 } from "./lib/orders";
 import { assertSeller, requireSessionUser } from "./lib/session";
@@ -21,6 +23,8 @@ export const create = mutation({
         buyerNotes: v.optional(v.string()),
     },
     handler: async (ctx, args) => {
+        await ctx.runMutation(internal.orders.releaseExpiredReservations, {});
+
         const buyer = await requireSessionUser(ctx, args.sessionToken);
         const address = await ctx.db.get(args.addressId);
         if (!address || address.userId !== buyer._id) {
@@ -54,6 +58,8 @@ export const create = mutation({
         const total = subtotal + shippingFee;
         const orderNumber = generateOrderNumber();
 
+        const reservationExpiresAt = getReservationExpiryTimestamp(args.paymentMethod);
+
         const orderId = await ctx.db.insert("orders", {
             orderNumber,
             buyerId: buyer._id,
@@ -65,6 +71,7 @@ export const create = mutation({
             paymentStatus: "PENDING",
             status: "PENDING",
             buyerNotes: args.buyerNotes,
+            reservationExpiresAt,
         });
 
         for (const item of lineItems) {
@@ -85,9 +92,7 @@ export const create = mutation({
             throw new Error("Failed to create order");
         }
 
-        if (args.paymentMethod === "COD") {
-            await applyOrderInventoryIfNeeded(ctx, order);
-        }
+        await applyOrderInventoryIfNeeded(ctx, order);
 
         await ctx.runMutation(internal.notifications.create, {
             userId: buyer._id,
@@ -198,15 +203,24 @@ export const updateStatus = mutation({
             throw new Error("Order is awaiting payment confirmation");
         }
 
-        const updates: Record<string, any> = { status: args.status };
-        if (args.status === "CONFIRMED") updates.confirmedAt = Date.now();
-        if (args.status === "SHIPPED") updates.shippedAt = Date.now();
-        if (args.status === "DELIVERED") updates.deliveredAt = Date.now();
-        if (args.status === "CANCELLED") updates.cancelledAt = Date.now();
-        if (args.trackingNumber) updates.trackingNumber = args.trackingNumber;
-        if (args.courier) updates.courier = args.courier;
+        const updates = {
+            status: args.status,
+            ...(args.status === "CONFIRMED" ? { confirmedAt: Date.now(), reservationExpiresAt: undefined } : {}),
+            ...(args.status === "SHIPPED" ? { shippedAt: Date.now() } : {}),
+            ...(args.status === "DELIVERED" ? { deliveredAt: Date.now() } : {}),
+            ...(args.status === "CANCELLED" ? { cancelledAt: Date.now(), reservationExpiresAt: undefined } : {}),
+            ...(args.trackingNumber ? { trackingNumber: args.trackingNumber } : {}),
+            ...(args.courier ? { courier: args.courier } : {}),
+        };
 
         await ctx.db.patch(args.orderId, updates);
+
+        if (args.status === "CANCELLED") {
+            const latestOrder = await ctx.db.get(args.orderId);
+            if (latestOrder) {
+                await revertOrderInventoryIfCommitted(ctx, latestOrder);
+            }
+        }
 
         const statusMessages: Record<string, { title: string; message: string }> = {
             CONFIRMED: { title: "Order Confirmed", message: `Your order ${order.orderNumber} has been confirmed by the seller.` },
@@ -267,6 +281,98 @@ export const get = query({
     },
 });
 
+async function releaseExpiredReservationsCore(ctx: MutationCtx) {
+    const now = Date.now();
+    const pendingOrders = await ctx.db
+        .query("orders")
+        .withIndex("by_status", (q) => q.eq("status", "PENDING"))
+        .collect();
+
+    let released = 0;
+    for (const order of pendingOrders) {
+        const isExpired = Boolean(order.reservationExpiresAt && order.reservationExpiresAt <= now);
+        const requiresPayment = order.paymentMethod !== "COD";
+        const isUnpaid = order.paymentStatus !== "PAID";
+
+        if (!isExpired || !requiresPayment || !isUnpaid) {
+            continue;
+        }
+
+        await revertOrderInventoryIfCommitted(ctx, order);
+        await ctx.db.patch(order._id, {
+            status: "CANCELLED",
+            paymentStatus: "FAILED",
+            cancelledAt: now,
+            reservationExpiresAt: undefined,
+        });
+
+        await ctx.runMutation(internal.notifications.create, {
+            userId: order.buyerId,
+            type: "ORDER_UPDATE",
+            title: "Order Cancelled",
+            message: `Order ${order.orderNumber} was cancelled because payment was not completed in time.`,
+            data: { orderId: order._id, orderNumber: order.orderNumber, status: "CANCELLED" },
+        });
+
+        released += 1;
+    }
+
+    return { released };
+}
+
+export const releaseExpiredReservations = internalMutation({
+    args: {},
+    handler: async (ctx) => {
+        return await releaseExpiredReservationsCore(ctx);
+    },
+});
+
+export const runReservationSweep = mutation({
+    args: { sessionToken: v.string() },
+    handler: async (ctx, args) => {
+        const actor = await requireSessionUser(ctx, args.sessionToken);
+        if (actor.role !== "ADMIN") {
+            throw new Error("Forbidden");
+        }
+
+        return await releaseExpiredReservationsCore(ctx);
+    },
+});
+
+export const getReservationMetrics = query({
+    args: { sessionToken: v.string(), refreshKey: v.optional(v.number()) },
+    handler: async (ctx, args) => {
+        const actor = await requireSessionUser(ctx, args.sessionToken);
+        if (actor.role !== "ADMIN") {
+            throw new Error("Forbidden");
+        }
+
+        const now = Date.now();
+        const pendingOrders = await ctx.db
+            .query("orders")
+            .withIndex("by_status", (q) => q.eq("status", "PENDING"))
+            .collect();
+
+        const reservableOrders = pendingOrders.filter(
+            (order) => order.paymentMethod !== "COD" && order.paymentStatus !== "PAID"
+        );
+
+        const expiredReservations = reservableOrders.filter(
+            (order) => Boolean(order.reservationExpiresAt && order.reservationExpiresAt <= now)
+        );
+
+        return {
+            now,
+            pendingOrderCount: pendingOrders.length,
+            activeReservationCount: reservableOrders.filter(
+                (order) => Boolean(order.reservationExpiresAt && order.reservationExpiresAt > now)
+            ).length,
+            expiredReservationCount: expiredReservations.length,
+            expiredOrderIds: expiredReservations.map((order) => order._id),
+        };
+    },
+});
+
 export const retryPayment = action({
     args: {
         sessionToken: v.string(),
@@ -274,7 +380,7 @@ export const retryPayment = action({
         successUrl: v.string(),
         cancelUrl: v.string(),
     },
-    handler: async (ctx, args) => {
+    handler: async (ctx, args): Promise<{ checkoutUrl: string; sessionId: string; orderNumber: string } | { error: string }> => {
         return await ctx.runAction(api.paymongo.createCheckoutSession, args);
     },
 });

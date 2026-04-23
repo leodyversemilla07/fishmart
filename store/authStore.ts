@@ -1,11 +1,12 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Id } from '@/convex/_generated/dataModel';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 
 // Define a shape that matches your Convex User schema + generic fields
 export interface ConvexUser {
-    _id: string;
-    id?: string; // mapping for compatibility
+    _id: Id<"users">;
+    id?: Id<"users">; // mapping for compatibility
     email: string;
     phoneNumber?: string;
     firstName: string;

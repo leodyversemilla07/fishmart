@@ -106,6 +106,7 @@ export default defineSchema({
         deliveredAt: v.optional(v.number()),
         cancelledAt: v.optional(v.number()),
         inventoryCommittedAt: v.optional(v.number()),
+        reservationExpiresAt: v.optional(v.number()),
     })
         .index("by_orderNumber", ["orderNumber"])
         .index("by_buyer", ["buyerId"])
@@ -137,7 +138,21 @@ export default defineSchema({
         refundedAmount: v.optional(v.number()),
         refundedAt: v.optional(v.number()),
         refundReason: v.optional(v.string()),
-        metadata: v.optional(v.any()),
+        metadata: v.optional(v.object({
+            orderId: v.optional(v.id("orders")),
+            buyerId: v.optional(v.id("users")),
+            orderNumber: v.optional(v.string()),
+            paymentMethod: v.optional(v.union(
+                v.literal("GCASH"),
+                v.literal("MAYA"),
+                v.literal("CARD"),
+                v.literal("BANK_TRANSFER"),
+                v.literal("COD")
+            )),
+            checkoutSessionId: v.optional(v.string()),
+            paymentIntentId: v.optional(v.string()),
+            sourceId: v.optional(v.string()),
+        })),
     })
         .index("by_order", ["orderId"])
         .index("by_checkoutSessionId", ["checkoutSessionId"])
@@ -162,7 +177,21 @@ export default defineSchema({
         type: v.string(),
         title: v.string(),
         message: v.string(),
-        data: v.optional(v.any()),
+        data: v.optional(v.object({
+            orderId: v.optional(v.id("orders")),
+            orderNumber: v.optional(v.string()),
+            status: v.optional(v.union(
+                v.literal("PENDING"),
+                v.literal("CONFIRMED"),
+                v.literal("PROCESSING"),
+                v.literal("SHIPPED"),
+                v.literal("DELIVERED"),
+                v.literal("CANCELLED"),
+                v.literal("REFUNDED")
+            )),
+            trackingNumber: v.optional(v.string()),
+            productId: v.optional(v.id("products")),
+        })),
         isRead: v.boolean(),
         readAt: v.optional(v.number()),
     }).index("by_user_read", ["userId", "isRead"]),

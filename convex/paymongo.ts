@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { action, internalMutation, internalQuery } from "./_generated/server";
 import { internal } from "./_generated/api";
-import { applyOrderInventoryIfNeeded, buildOrderLineItems } from "./lib/orders";
+import { applyOrderInventoryIfNeeded, buildOrderLineItems, revertOrderInventoryIfCommitted } from "./lib/orders";
 
 const PAYMONGO_API_URL = "https://api.paymongo.com/v1";
 
@@ -57,6 +57,8 @@ export const createCheckoutSession = action({
     },
     handler: async (ctx, args): Promise<{ checkoutUrl: string; sessionId: string; orderNumber: string } | { error: string }> => {
         try {
+            await ctx.runMutation(internal.orders.releaseExpiredReservations, {});
+
             const authResult = await ctx.runQuery(internal.auth.getSessionUser, { sessionToken: args.sessionToken });
             if (!authResult) {
                 return { error: "Unauthorized" };
@@ -72,12 +74,18 @@ export const createCheckoutSession = action({
             if (order.paymentMethod === "COD") {
                 return { error: "Cash on Delivery orders do not require online payment" };
             }
+            if (order.status !== "PENDING") {
+                return { error: "Order can no longer accept payment" };
+            }
             if (order.paymentStatus === "PAID") {
                 return { error: "Order is already paid" };
             }
+            if (order.reservationExpiresAt && order.reservationExpiresAt <= Date.now()) {
+                return { error: "Payment window has expired for this order" };
+            }
 
             const secretKey = getPayMongoSecretKey();
-            const lineItems = order.items.map((item) => ({
+            const lineItems = order.items.map((item: { name: string; quantity: number; amount: number; imageUrl?: string }) => ({
                 name: item.name,
                 quantity: item.quantity,
                 amount: Math.round(item.amount * 100),
@@ -148,7 +156,7 @@ export const getCheckoutSession = action({
     args: {
         sessionId: v.string(),
     },
-    handler: async (_ctx, args): Promise<{ status: string; paymentIntent?: any } | { error: string }> => {
+    handler: async (_ctx, args): Promise<{ status: string; paymentIntent?: unknown } | { error: string }> => {
         try {
             const secretKey = getPayMongoSecretKey();
 
@@ -196,6 +204,8 @@ export const getOrderForCheckout = internalQuery({
             orderNumber: order.orderNumber,
             paymentMethod: order.paymentMethod,
             paymentStatus: order.paymentStatus,
+            status: order.status,
+            reservationExpiresAt: order.reservationExpiresAt,
             totalAmount: order.total,
             buyerEmail: buyer?.email ?? "",
             buyerName: `${buyer?.firstName ?? ""} ${buyer?.lastName ?? ""}`.trim(),
@@ -233,19 +243,23 @@ export const updatePaymentStatus = internalMutation({
         paidAt: v.optional(v.number()),
     },
     handler: async (ctx, args) => {
-        let payment =
-            (args.checkoutSessionId
-                ? await ctx.db
-                    .query("payments")
-                    .withIndex("by_checkoutSessionId", (q) => q.eq("checkoutSessionId", args.checkoutSessionId!))
-                    .unique()
-                : null) ||
-            (args.paymentIntentId
-                ? await ctx.db
-                    .query("payments")
-                    .withIndex("by_paymentIntentId", (q) => q.eq("paymentIntentId", args.paymentIntentId!))
-                    .unique()
-                : null);
+        let payment = null;
+
+        if (args.checkoutSessionId) {
+            const checkoutSessionId = args.checkoutSessionId;
+            payment = await ctx.db
+                .query("payments")
+                .withIndex("by_checkoutSessionId", (q) => q.eq("checkoutSessionId", checkoutSessionId))
+                .unique();
+        }
+
+        if (!payment && args.paymentIntentId) {
+            const paymentIntentId = args.paymentIntentId;
+            payment = await ctx.db
+                .query("payments")
+                .withIndex("by_paymentIntentId", (q) => q.eq("paymentIntentId", paymentIntentId))
+                .unique();
+        }
 
         if (!payment) {
             throw new Error("Payment not found");
@@ -277,6 +291,7 @@ export const updatePaymentStatus = internalMutation({
                 paymentStatus: "PAID",
                 status: "CONFIRMED",
                 confirmedAt: Date.now(),
+                reservationExpiresAt: undefined,
             });
 
             await ctx.runMutation(internal.notifications.create, {
@@ -287,8 +302,10 @@ export const updatePaymentStatus = internalMutation({
                 data: { orderId: payment.orderId, orderNumber: order.orderNumber },
             });
         } else if (args.status === "FAILED") {
+            await revertOrderInventoryIfCommitted(ctx, order);
             await ctx.db.patch(payment.orderId, {
                 paymentStatus: "FAILED",
+                reservationExpiresAt: undefined,
             });
         }
 

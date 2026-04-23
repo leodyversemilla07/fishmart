@@ -32,7 +32,21 @@ export const create = internalMutation({
         type: v.string(),
         title: v.string(),
         message: v.string(),
-        data: v.optional(v.any()),
+        data: v.optional(v.object({
+            orderId: v.optional(v.id("orders")),
+            orderNumber: v.optional(v.string()),
+            status: v.optional(v.union(
+                v.literal("PENDING"),
+                v.literal("CONFIRMED"),
+                v.literal("PROCESSING"),
+                v.literal("SHIPPED"),
+                v.literal("DELIVERED"),
+                v.literal("CANCELLED"),
+                v.literal("REFUNDED")
+            )),
+            trackingNumber: v.optional(v.string()),
+            productId: v.optional(v.id("products")),
+        })),
     },
     handler: async (ctx, args) => {
         return await ctx.db.insert("notifications", {

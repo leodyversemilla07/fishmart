@@ -1,9 +1,10 @@
 import { v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import { Doc } from "./_generated/dataModel";
+import { MutationCtx, QueryCtx, mutation, query } from "./_generated/server";
 import { requireSessionUser } from "./lib/session";
 
 // Helper to resolve URL
-const resolveUrl = async (ctx: any, url: string) => {
+const resolveUrl = async (ctx: QueryCtx | MutationCtx, url: string) => {
     if (!url) return null;
     if (url.startsWith("http")) return url;
     return await ctx.storage.getUrl(url);
@@ -57,9 +58,10 @@ export const listByProduct = query({
                 const user = await ctx.db.get(review.userId);
 
                 // Resolve review images
-                let resolvedImages = [];
+                let resolvedImages: string[] = [];
                 if (review.images) {
-                    resolvedImages = await Promise.all(review.images.map(img => resolveUrl(ctx, img)));
+                    const resolved = await Promise.all(review.images.map(img => resolveUrl(ctx, img)));
+                    resolvedImages = resolved.filter((image): image is string => Boolean(image));
                 }
 
                 // Resolve user avatar if we had one
@@ -85,7 +87,7 @@ export const listBySeller = query({
 
         const productIds = products.map(p => p._id);
 
-        let allReviews = [];
+        let allReviews: (Doc<"reviews"> & { user: Doc<"users"> | null; product: Doc<"products"> | undefined; images: string[] })[] = [];
         for (const productId of productIds) {
             const reviews = await ctx.db
                 .query("reviews")
@@ -97,9 +99,10 @@ export const listBySeller = query({
                 const product = products.find(p => p._id === productId);
 
                 // Resolve images
-                let resolvedImages = [];
+                let resolvedImages: string[] = [];
                 if (review.images) {
-                    resolvedImages = await Promise.all(review.images.map(img => resolveUrl(ctx, img)));
+                    const resolved = await Promise.all(review.images.map(img => resolveUrl(ctx, img)));
+                    resolvedImages = resolved.filter((image): image is string => Boolean(image));
                 }
                 if (user && user.shopLogo) {
                     user.shopLogo = await resolveUrl(ctx, user.shopLogo) || user.shopLogo;

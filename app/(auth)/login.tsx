@@ -4,6 +4,7 @@ import { useAction } from 'convex/react';
 import { Image } from 'expo-image';
 import { Link, router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import * as Haptics from 'expo-haptics';
 import { useState } from 'react';
 import { ImageBackground, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, View } from 'react-native';
 import { Button, HelperText, Text, TextInput, useTheme } from 'react-native-paper';
@@ -22,6 +23,7 @@ export default function LoginScreen() {
     const handleLogin = async () => {
         if (!email || !password) {
             setError('Please enter both email and password');
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
             return;
         }
 
@@ -35,15 +37,19 @@ export default function LoginScreen() {
 
             if ('error' in result) {
                 setError(result.error);
+                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
                 return;
             }
 
             if (result.user && result.sessionToken) {
-                login(result.user as any, result.sessionToken);
+                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                login(result.user, result.sessionToken);
                 router.replace('/(tabs)');
             }
-        } catch (err: any) {
-            setError(err.message || 'An unexpected error occurred');
+        } catch (err) {
+            const message = err instanceof Error ? err.message : 'An unexpected error occurred';
+            setError(message);
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
             console.error(err);
         } finally {
             setLoading(false);
@@ -67,7 +73,7 @@ export default function LoginScreen() {
                             <View style={styles.header}>
                                 <Image
                                     source={require('@/assets/images/logo.png')}
-                                    style={styles.logo as any}
+                                    style={styles.logo}
                                     contentFit="contain"
                                 />
 
@@ -102,7 +108,7 @@ export default function LoginScreen() {
 
                                 {error && <HelperText type="error" visible={true}>{error}</HelperText>}
 
-                                <Button mode="text" style={styles.forgotPassword} onPress={() => router.push('/forgot-password')}>
+                                <Button mode="text" style={styles.forgotPassword} contentStyle={styles.textButtonContent} onPress={() => router.push('/forgot-password')}>
                                     Forgot Password?
                                 </Button>
 
@@ -121,7 +127,7 @@ export default function LoginScreen() {
                                 <View style={styles.footer}>
                                     <Text variant="bodyMedium" style={{ color: '#666' }}>Don&apos;t have an account? </Text>
                                     <Link href="/signup" asChild>
-                                        <Button mode="text" compact labelStyle={{ color: theme.colors.primary, fontWeight: 'bold' }}>
+                                        <Button mode="text" contentStyle={styles.textButtonContent} labelStyle={{ color: theme.colors.primary, fontWeight: 'bold' }}>
                                             Sign Up
                                         </Button>
                                     </Link>
@@ -192,13 +198,16 @@ const styles = StyleSheet.create({
         alignSelf: 'flex-end',
         marginBottom: 16,
     },
-
+    textButtonContent: {
+        paddingVertical: 4,
+        paddingHorizontal: 8,
+    },
     loginButton: {
         borderRadius: 12,
         marginTop: 8,
     },
     loginButtonContent: {
-        paddingVertical: 8,
+        paddingVertical: 12,
     },
     footer: {
         flexDirection: 'row',

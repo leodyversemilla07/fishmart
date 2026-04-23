@@ -1,8 +1,8 @@
 import { v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import { MutationCtx, QueryCtx, mutation, query } from "./_generated/server";
 import { assertSeller, requireSessionUser } from "./lib/session";
 
-const resolveUrl = async (ctx: any, url: string) => {
+const resolveUrl = async (ctx: QueryCtx | MutationCtx, url: string) => {
     if (!url) return null;
     if (url.startsWith("http")) return url;
     // Assume it's a storage ID
@@ -14,24 +14,28 @@ export const list = query({
         categoryId: v.optional(v.id("categories")),
         sellerId: v.optional(v.id("users")),
         search: v.optional(v.string()),
-        status: v.optional(v.string()),
+        status: v.optional(v.union(v.literal("ACTIVE"), v.literal("INACTIVE"), v.literal("OUT_OF_STOCK"))),
+        limit: v.optional(v.number()),
     },
     handler: async (ctx, args) => {
         let productsQuery;
 
         // Use indexes when possible for efficient filtering
         if (args.sellerId) {
+            const sellerId = args.sellerId;
             productsQuery = ctx.db
                 .query("products")
-                .withIndex("by_seller", (q) => q.eq("sellerId", args.sellerId!));
+                .withIndex("by_seller", (q) => q.eq("sellerId", sellerId));
         } else if (args.categoryId) {
+            const categoryId = args.categoryId;
             productsQuery = ctx.db
                 .query("products")
-                .withIndex("by_category", (q) => q.eq("categoryId", args.categoryId!));
+                .withIndex("by_category", (q) => q.eq("categoryId", categoryId));
         } else if (args.status) {
+            const status = args.status;
             productsQuery = ctx.db
                 .query("products")
-                .withIndex("by_status", (q) => q.eq("status", args.status as any));
+                .withIndex("by_status", (q) => q.eq("status", status));
         } else {
             productsQuery = ctx.db.query("products");
         }
@@ -59,24 +63,33 @@ export const list = query({
             );
         }
 
-        // Join with images and resolve URLs
-        const productsWithImages = await Promise.all(
-            products.map(async (product) => {
-                const images = await ctx.db
-                    .query("product_images")
-                    .withIndex("by_product", (q) => q.eq("productId", product._id))
-                    .collect();
+        const uniqueCategoryIds = [...new Set(products.map((p) => p.categoryId))];
+        const categories = await Promise.all(uniqueCategoryIds.map((categoryId) => ctx.db.get(categoryId)));
+        const categoryMap = new Map(uniqueCategoryIds.map((categoryId, i) => [categoryId, categories[i]]));
 
-                const resolvedImages = await Promise.all(images.map(async img => ({
+        const effectiveLimit = Math.max(1, Math.min(args.limit ?? 50, 100));
+        const limitedProducts = products.slice(0, effectiveLimit);
+
+        // Join with images and computed review stats
+        const productsWithImages = await Promise.all(
+            limitedProducts.map(async (product) => {
+                const [images, reviews] = await Promise.all([
+                    ctx.db
+                        .query("product_images")
+                        .withIndex("by_product", (q) => q.eq("productId", product._id))
+                        .collect(),
+                    ctx.db
+                        .query("reviews")
+                        .withIndex("by_product", (q) => q.eq("productId", product._id))
+                        .collect(),
+                ]);
+
+                const resolvedImages = await Promise.all(images.map(async (img) => ({
                     ...img,
                     imageUrl: await resolveUrl(ctx, img.imageUrl) || img.imageUrl
                 })));
 
-                const category = await ctx.db.get(product.categoryId);
-                const reviews = await ctx.db
-                    .query("reviews")
-                    .withIndex("by_product", (q) => q.eq("productId", product._id))
-                    .collect();
+                const category = categoryMap.get(product.categoryId);
 
                 return {
                     ...product,
@@ -100,44 +113,51 @@ export const get = query({
         const product = await ctx.db.get(args.id);
         if (!product) return null;
 
-        const images = await ctx.db
-            .query("product_images")
-            .withIndex("by_product", (q) => q.eq("productId", product._id))
-            .collect();
+        const [images, sellerRecord, category, productReviews] = await Promise.all([
+            ctx.db
+                .query("product_images")
+                .withIndex("by_product", (q) => q.eq("productId", product._id))
+                .collect(),
+            ctx.db.get(product.sellerId),
+            ctx.db.get(product.categoryId),
+            ctx.db
+                .query("reviews")
+                .withIndex("by_product", (q) => q.eq("productId", product._id))
+                .collect(),
+        ]);
 
-        const resolvedImages = await Promise.all(images.map(async img => ({
+        const resolvedImages = await Promise.all(images.map(async (img) => ({
             ...img,
             imageUrl: await resolveUrl(ctx, img.imageUrl) || img.imageUrl
         })));
 
-        const seller = await ctx.db.get(product.sellerId);
-
-        // Resolve seller logo if applicable
-        if (seller && seller.shopLogo) {
-            seller.shopLogo = await resolveUrl(ctx, seller.shopLogo) || seller.shopLogo;
+        let seller = sellerRecord;
+        if (seller?.shopLogo) {
+            const resolvedLogo = await resolveUrl(ctx, seller.shopLogo);
+            seller = { ...seller, shopLogo: resolvedLogo || seller.shopLogo };
         }
 
-        const category = await ctx.db.get(product.categoryId);
-        const productReviews = await ctx.db
-            .query("reviews")
-            .withIndex("by_product", (q) => q.eq("productId", product._id))
-            .collect();
         const sellerProducts = seller
             ? await ctx.db
                 .query("products")
                 .withIndex("by_seller", (q) => q.eq("sellerId", seller._id))
                 .collect()
             : [];
-        let sellerReviewCount = 0;
-        let sellerRatingSum = 0;
-        for (const sellerProduct of sellerProducts) {
-            const reviews = await ctx.db
-                .query("reviews")
-                .withIndex("by_product", (q) => q.eq("productId", sellerProduct._id))
-                .collect();
-            sellerReviewCount += reviews.length;
-            sellerRatingSum += reviews.reduce((sum, review) => sum + review.rating, 0);
-        }
+
+        const sellerReviewBuckets = await Promise.all(
+            sellerProducts.map((sellerProduct) =>
+                ctx.db
+                    .query("reviews")
+                    .withIndex("by_product", (q) => q.eq("productId", sellerProduct._id))
+                    .collect()
+            )
+        );
+
+        const sellerReviewCount = sellerReviewBuckets.reduce((total, reviews) => total + reviews.length, 0);
+        const sellerRatingSum = sellerReviewBuckets.reduce(
+            (total, reviews) => total + reviews.reduce((sum, review) => sum + review.rating, 0),
+            0
+        );
 
         return {
             ...product,
@@ -249,7 +269,7 @@ export const update = mutation({
         const { id, images, sessionToken, ...updates } = args;
 
         if (Object.keys(updates).length > 0) {
-            await ctx.db.patch(id, updates as any);
+            await ctx.db.patch(id, updates);
         }
 
         if (images) {

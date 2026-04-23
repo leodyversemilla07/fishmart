@@ -1,4 +1,9 @@
 import { assertSameUser, hashSessionToken } from '../session';
+import { Id, TableNames } from '../../_generated/dataModel';
+
+function toId<TableName extends TableNames>(value: string): Id<TableName> {
+  return value as Id<TableName>;
+}
 
 describe('session helpers', () => {
   it('hashes the same token consistently', async () => {
@@ -10,6 +15,6 @@ describe('session helpers', () => {
   });
 
   it('throws when actor ids do not match', () => {
-    expect(() => assertSameUser('user-1' as any, 'user-2' as any)).toThrow('Forbidden');
+    expect(() => assertSameUser(toId<'users'>('user-1'), toId<'users'>('user-2'))).toThrow('Forbidden');
   });
 });

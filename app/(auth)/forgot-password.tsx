@@ -1,13 +1,10 @@
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useState } from 'react';
 import { ImageBackground, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, View } from 'react-native';
 import { Button, Text } from 'react-native-paper';
 
 export default function ForgotPasswordScreen() {
-    const [email, setEmail] = useState('');
-
     return (
         <View style={styles.container}>
             <StatusBar style="light" />
@@ -25,7 +22,7 @@ export default function ForgotPasswordScreen() {
                             <View style={styles.header}>
                                 <Image
                                     source={require('@/assets/images/logo.png')}
-                                    style={styles.logo as any}
+                                    style={styles.logo}
                                     contentFit="contain"
                                 />
 
@@ -131,6 +128,6 @@ const styles = StyleSheet.create({
         marginTop: 8,
     },
     buttonContent: {
-        paddingVertical: 8,
+        paddingVertical: 12,
     },
 });

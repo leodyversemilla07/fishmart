@@ -1,4 +1,5 @@
 import { Doc, Id } from "../_generated/dataModel";
+import { MutationCtx, QueryCtx } from "../_generated/server";
 
 export const SESSION_DURATION_MS = 1000 * 60 * 60 * 24 * 30;
 
@@ -19,15 +20,15 @@ export function generateSessionToken(): string {
         .join("");
 }
 
-export async function getSessionRecord(ctx: any, sessionToken: string) {
+export async function getSessionRecord(ctx: QueryCtx | MutationCtx, sessionToken: string) {
     const tokenHash = await hashSessionToken(sessionToken);
     return await ctx.db
         .query("sessions")
-        .withIndex("by_tokenHash", (q: any) => q.eq("tokenHash", tokenHash))
+        .withIndex("by_tokenHash", (q) => q.eq("tokenHash", tokenHash))
         .unique();
 }
 
-export async function requireSession(ctx: any, sessionToken: string): Promise<{
+export async function requireSession(ctx: QueryCtx | MutationCtx, sessionToken: string): Promise<{
     session: Doc<"sessions">;
     user: Doc<"users">;
 }> {
@@ -44,7 +45,7 @@ export async function requireSession(ctx: any, sessionToken: string): Promise<{
     return { session, user };
 }
 
-export async function requireSessionUser(ctx: any, sessionToken: string) {
+export async function requireSessionUser(ctx: QueryCtx | MutationCtx, sessionToken: string) {
     return (await requireSession(ctx, sessionToken)).user;
 }
 
@@ -59,4 +60,3 @@ export function assertSeller(user: Doc<"users">) {
         throw new Error("Seller access required");
     }
 }
-
