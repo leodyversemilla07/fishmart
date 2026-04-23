@@ -86,6 +86,9 @@ export function FMChip({
   
   const variantStyles = getVariantStyles();
   const iconSize = size === 'sm' ? 12 : size === 'md' ? 14 : 16;
+  const iconColor = typeof variantStyles.text.color === 'string'
+    ? variantStyles.text.color
+    : theme.colors.onSurface;
   
   const content = (
     <View
@@ -104,7 +107,7 @@ export function FMChip({
       {Icon && (
         <Icon
           size={iconSize}
-          color={variantStyles.text.color as string}
+          color={iconColor}
           style={{ marginRight: 4 }}
         />
       )}

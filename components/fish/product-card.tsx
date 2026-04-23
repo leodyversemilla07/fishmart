@@ -4,11 +4,12 @@
  * Card component specifically designed for displaying fish products.
  */
 
-import React from 'react';
+import React, { memo, useCallback } from 'react';
 import { StyleSheet, View, Pressable, ViewStyle } from 'react-native';
 import { Text, useTheme } from 'react-native-paper';
 import { Image } from 'expo-image';
 import { LucideMapPin, LucideStar } from 'lucide-react-native';
+import * as Haptics from 'expo-haptics';
 import type { FishmartTheme } from '@/constants/design-system';
 import { FMChip } from '../ui/chip';
 import { FMBadge } from '../ui/badge';
@@ -49,7 +50,7 @@ interface ProductCardProps {
   style?: ViewStyle;
 }
 
-export function ProductCard({
+export const ProductCard = memo(function ProductCard({
   product,
   variant = 'default',
   onPress,
@@ -58,6 +59,11 @@ export function ProductCard({
   style,
 }: ProductCardProps) {
   const theme = useTheme<FishmartTheme>();
+
+  const handlePress = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    onPress?.();
+  }, [onPress]);
   
   const imageUrl = product.images?.[0]?.imageUrl 
     || 'https://images.unsplash.com/photo-1522069169874-c58ec4b76be5?w=400';
@@ -90,7 +96,7 @@ export function ProductCard({
   if (variant === 'horizontal') {
     return (
       <Pressable
-        onPress={onPress}
+        onPress={handlePress}
         style={({ pressed }) => [
           styles.horizontalCard,
           {
@@ -153,7 +159,7 @@ export function ProductCard({
   if (variant === 'compact') {
     return (
       <Pressable
-        onPress={onPress}
+        onPress={handlePress}
         style={({ pressed }) => [
           styles.compactCard,
           {
@@ -193,7 +199,7 @@ export function ProductCard({
   // Default variant
   return (
     <Pressable
-      onPress={onPress}
+      onPress={handlePress}
       style={({ pressed }) => [
         styles.card,
         {
@@ -319,7 +325,7 @@ export function ProductCard({
       </View>
     </Pressable>
   );
-}
+});
 
 const styles = StyleSheet.create({
   // Default variant

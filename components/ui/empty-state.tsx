@@ -4,7 +4,7 @@
  * Displays a placeholder when content is empty.
  */
 
-import { NeutralColors, BorderRadius, Spacing, Typography, BrandColors } from '@/constants/design-system/tokens';
+import { NeutralColors, BorderRadius, Spacing, BrandColors } from '@/constants/design-system/tokens';
 import { LucideIcon, Package, Search, ShoppingCart, MessageCircle, Bell, Fish, Heart, MapPin, FileText } from 'lucide-react-native';
 import React from 'react';
 import { StyleSheet, View, ViewStyle } from 'react-native';

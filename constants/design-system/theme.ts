@@ -5,8 +5,8 @@
  * Integrates with React Native Paper's MD3 theme system.
  */
 
-import { MD3DarkTheme, MD3LightTheme, configureFonts } from 'react-native-paper';
-import type { MD3Theme } from 'react-native-paper';
+import { DarkTheme, DefaultTheme } from '@react-navigation/native';
+import { MD3DarkTheme, MD3LightTheme, configureFonts, useTheme as usePaperTheme, type MD3Theme } from 'react-native-paper';
 import {
   BrandColors,
   SemanticColors,
@@ -265,8 +265,6 @@ export const FishmartDarkTheme: FishmartTheme = {
 // NAVIGATION THEMES
 // =============================================================================
 
-import { DefaultTheme, DarkTheme } from '@react-navigation/native';
-
 /**
  * React Navigation theme for light mode
  */
@@ -305,28 +303,7 @@ export const NavigationDarkTheme = {
 // THEME HOOK HELPER
 // =============================================================================
 
-import { useTheme as usePaperTheme } from 'react-native-paper';
-
 /**
  * Custom hook to access the Fishmart theme with full type support
  */
 export const useTheme = () => usePaperTheme<FishmartTheme>();
-
-// =============================================================================
-// EXPORTS
-// =============================================================================
-
-export {
-  // Re-export tokens for direct access
-  BrandColors,
-  SemanticColors,
-  NeutralColors,
-  SpecialColors,
-  Typography,
-  Spacing,
-  BorderRadius,
-  Shadows,
-  ComponentSizes,
-  IconSizes,
-  LayoutSpacing,
-};
