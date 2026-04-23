@@ -13,11 +13,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 export default function ChatRoomScreen() {
     const theme = useTheme();
     const insets = useSafeAreaInsets();
-    const { id, recipientName, recipientId } = useLocalSearchParams<{ id: string; recipientName: string; recipientId: string }>();
+    const { id, recipientName } = useLocalSearchParams<{ id: Id<"conversations">; recipientName: string }>();
     const { convexUser, sessionToken } = useAuthStore();
 
     // Convex Hooks
-    const messagesQuery = useQuery(api.chat.getMessages, id && sessionToken ? { sessionToken, conversationId: id as Id<"conversations"> } : "skip");
+    const messagesQuery = useQuery(api.chat.getMessages, id && sessionToken ? { sessionToken, conversationId: id } : "skip");
     const messages = messagesQuery ?? [];
     const sendMessage = useMutation(api.chat.sendMessage);
 
@@ -41,7 +41,7 @@ export default function ChatRoomScreen() {
         try {
             await sendMessage({
                 sessionToken,
-                conversationId: id as Id<"conversations">,
+                conversationId: id,
                 content: textToBatch,
             });
             setTimeout(() => flatListRef.current?.scrollToEnd(), 200);

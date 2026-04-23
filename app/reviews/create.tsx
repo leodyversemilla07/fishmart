@@ -1,4 +1,5 @@
 import { api } from '@/convex/_generated/api';
+import { Id } from '@/convex/_generated/dataModel';
 import { useAuthStore } from '@/store/authStore';
 import { pickImage, uploadImage } from '@/utils/upload';
 import { useMutation } from 'convex/react';
@@ -13,7 +14,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 export default function CreateReviewScreen() {
     const theme = useTheme();
     const insets = useSafeAreaInsets();
-    const { productId, name } = useLocalSearchParams<{ productId: string; name: string }>();
+    const { productId: productIdValue, name } = useLocalSearchParams<{ productId: Id<"products">; name: string }>();
     const { sessionToken } = useAuthStore();
 
     const createReviewMutation = useMutation(api.reviews.create);
@@ -34,8 +35,9 @@ export default function CreateReviewScreen() {
                 const asset = result.assets[0];
                 setImages([...images, { uri: asset.uri, base64: asset.base64 }]);
             }
-        } catch (e: any) {
-            Alert.alert('Error', e.message);
+        } catch (e) {
+            const message = e instanceof Error ? e.message : 'Failed to pick image.';
+            Alert.alert('Error', message);
         }
     };
 
@@ -44,7 +46,7 @@ export default function CreateReviewScreen() {
     };
 
     const handleSubmit = async () => {
-        if (!productId) return;
+        if (!productIdValue) return;
         if (!sessionToken) {
             Alert.alert('Error', 'You must be logged in to review.');
             return;
@@ -56,14 +58,14 @@ export default function CreateReviewScreen() {
             const uploadedUrls: string[] = await Promise.all(
                 images.map(async (img) => {
                     if (img.base64) {
-                        return await uploadImage(img.uri, img.base64, 'reviews', `products/${productId}`);
+                        return await uploadImage(img.uri, img.base64, 'reviews', `products/${productIdValue}`);
                     }
                     return img.uri; // Should not happen with new images
                 })
             );
 
             await createReviewMutation({
-                productId: productId as any,
+                productId: productIdValue,
                 sessionToken,
                 rating,
                 comment,
@@ -73,9 +75,10 @@ export default function CreateReviewScreen() {
             Alert.alert('Success', 'Thank you for your review!', [
                 { text: 'OK', onPress: () => router.back() }
             ]);
-        } catch (error: any) {
+        } catch (error) {
             console.error('Error submitting review:', error);
-            Alert.alert('Error', error.message || 'Failed to submit review.');
+            const message = error instanceof Error ? error.message : 'Failed to submit review.';
+            Alert.alert('Error', message);
         } finally {
             setSubmitting(false);
         }

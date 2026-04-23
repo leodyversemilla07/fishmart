@@ -31,7 +31,7 @@ export default function RootLayout() {
 
   useEffect(() => {
     setInitialized(true);
-  }, []);
+  }, [setInitialized]);
 
   return (
     <ConvexProvider client={convex}>
@@ -53,4 +53,3 @@ export default function RootLayout() {
     </ConvexProvider>
   );
 }
-

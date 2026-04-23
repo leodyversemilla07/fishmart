@@ -1,4 +1,5 @@
 import { api } from '@/convex/_generated/api';
+import { Id } from '@/convex/_generated/dataModel';
 import { useAuthStore } from '@/store/authStore';
 import { useMutation, useQuery } from 'convex/react';
 import { router } from 'expo-router';
@@ -22,6 +23,20 @@ import {
 import { Button, FAB, Text, useTheme } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+type AddressItem = {
+    _id: Id<"addresses">;
+    firstName: string;
+    middleName?: string;
+    lastName: string;
+    phoneNumber: string;
+    streetAddress: string;
+    barangay: string;
+    city: string;
+    province: string;
+    postalCode?: string;
+    isDefault: boolean;
+};
+
 export default function AddressesScreen() {
     const theme = useTheme();
     const insets = useSafeAreaInsets();
@@ -35,7 +50,7 @@ export default function AddressesScreen() {
 
     const loading = addressesQuery === undefined;
 
-    const handleDelete = (id: string, fullName: string) => {
+    const handleDelete = (id: Id<"addresses">, fullName: string) => {
         Alert.alert(
             'Delete Address',
             `Are you sure you want to delete the address for "${fullName}"?`,
@@ -47,9 +62,10 @@ export default function AddressesScreen() {
                     onPress: async () => {
                         try {
                             if (!sessionToken) return;
-                            await deleteAddressMutation({ sessionToken, id: id as any });
-                        } catch (err: any) {
-                            Alert.alert('Error', err.message || 'Failed to delete address');
+                            await deleteAddressMutation({ sessionToken, id });
+                        } catch (err) {
+                            const message = err instanceof Error ? err.message : 'Failed to delete address';
+                            Alert.alert('Error', message);
                         }
                     }
                 }
@@ -57,19 +73,20 @@ export default function AddressesScreen() {
         );
     };
 
-    const handleSetDefault = async (id: string) => {
+    const handleSetDefault = async (id: Id<"addresses">) => {
         try {
             if (!sessionToken) return;
-            await setDefaultAddressMutation({ sessionToken, id: id as any });
-        } catch (err: any) {
-            Alert.alert('Error', err.message || 'Failed to set default address');
+            await setDefaultAddressMutation({ sessionToken, id });
+        } catch (err) {
+            const message = err instanceof Error ? err.message : 'Failed to set default address';
+            Alert.alert('Error', message);
         }
     };
 
-    const renderItem = ({ item }: { item: any }) => (
+    const renderItem = ({ item }: { item: AddressItem }) => (
         <TouchableOpacity
             style={[styles.card, item.isDefault && styles.defaultCard]}
-            onPress={() => router.push(`/profile/address/${item._id}` as any)}
+            onPress={() => router.push({ pathname: '/profile/address/[id]', params: { id: item._id } })}
             activeOpacity={0.7}
         >
             <View style={styles.cardHeader}>
@@ -152,7 +169,7 @@ export default function AddressesScreen() {
                             <Button
                                 mode="contained"
                                 style={styles.emptyButton}
-                                onPress={() => router.push('/profile/address/new' as any)}
+                                onPress={() => router.push('/profile/address/new')}
                             >
                                 Add Address
                             </Button>
@@ -164,7 +181,7 @@ export default function AddressesScreen() {
             <FAB
                 icon={({ size, color }) => <LucidePlus size={24} color={color} />}
                 style={[styles.fab, { bottom: insets.bottom + 20 }]}
-                onPress={() => router.push('/profile/address/new' as any)}
+                onPress={() => router.push('/profile/address/new')}
                 label="Add New"
             />
         </View>

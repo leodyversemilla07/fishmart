@@ -1,9 +1,11 @@
 import { api } from '@/convex/_generated/api';
+import { Id } from '@/convex/_generated/dataModel';
 import { Category } from '@/types';
 import { useAuthStore } from '@/store/authStore';
 import { pickImage, uploadImage } from '@/utils/upload';
 import { useMutation, useQuery } from 'convex/react';
 import { Image as ExpoImage } from 'expo-image';
+import type { ImagePickerAsset } from 'expo-image-picker';
 import { router, useLocalSearchParams } from 'expo-router';
 import { LucideArrowLeft, LucideCamera, LucideX } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
@@ -19,7 +21,7 @@ interface ExistingImage {
 
 interface NewImage {
     uri: string;
-    base64?: string;
+    base64?: string | null;
     isExisting: false;
 }
 
@@ -28,11 +30,11 @@ type ProductImage = ExistingImage | NewImage;
 export default function EditProductScreen() {
     const theme = useTheme();
     const insets = useSafeAreaInsets();
-    const { id } = useLocalSearchParams<{ id: string }>();
+    const { id: productId } = useLocalSearchParams<{ id: Id<"products"> }>();
     const { sessionToken } = useAuthStore();
 
     // Convex Query
-    const product = useQuery(api.products.get, { id: id as any });
+    const product = useQuery(api.products.get, productId ? { id: productId } : "skip");
     const categoriesList = useQuery(api.categories.list) || [];
     const updateProductMutation = useMutation(api.products.update);
 
@@ -40,7 +42,7 @@ export default function EditProductScreen() {
     const [description, setDescription] = useState('');
     const [price, setPrice] = useState('');
     const [stock, setStock] = useState('1');
-    const [category, setCategory] = useState('');
+    const [category, setCategory] = useState<Id<"categories"> | ''>('');
     const [location, setLocation] = useState('');
 
     const [images, setImages] = useState<ProductImage[]>([]);
@@ -56,10 +58,10 @@ export default function EditProductScreen() {
             setPrice(product.price?.toString() || '');
             setStock(product.stock?.toString() || '1');
             setLocation(product.city || '');
-            setCategory(product.categoryId || '');
+            setCategory(product.categoryId);
 
             if (product.images && product.images.length > 0) {
-                setImages(product.images.map((img: any) => ({
+                setImages(product.images.map((img) => ({
                     id: img._id,
                     imageUrl: img.imageUrl,
                     isExisting: true,
@@ -73,7 +75,7 @@ export default function EditProductScreen() {
         try {
             const result = await pickImage(true);
             if (result && !result.canceled && result.assets) {
-                const newImages: NewImage[] = result.assets.map((asset: any) => ({
+                const newImages: NewImage[] = result.assets.map((asset: ImagePickerAsset) => ({
                     uri: asset.uri,
                     base64: asset.base64,
                     isExisting: false as const,
@@ -100,6 +102,9 @@ export default function EditProductScreen() {
         setError(null);
 
         try {
+            if (!productId) {
+                throw new Error('Product not found.');
+            }
             if (!sessionToken) {
                 throw new Error('Session expired. Please log in again.');
             }
@@ -114,21 +119,22 @@ export default function EditProductScreen() {
             }
 
             await updateProductMutation({
-                sessionToken: sessionToken as string,
-                id: id as any,
+                sessionToken,
+                id: productId,
                 name: name.trim(),
                 description: description.trim(),
                 price: parseFloat(price),
                 stock: parseInt(stock) || 1,
-                categoryId: category as any,
+                categoryId: category,
                 city: location.trim(),
                 province: location.trim(),
                 images: finalImageUrls,
             });
 
             Alert.alert('Success', 'Product updated successfully', [{ text: 'OK', onPress: () => router.back() }]);
-        } catch (err: any) {
-            setError(err.message || 'Failed to update product');
+        } catch (err) {
+            const message = err instanceof Error ? err.message : 'Failed to update product';
+            setError(message);
         } finally {
             setSaving(false);
         }

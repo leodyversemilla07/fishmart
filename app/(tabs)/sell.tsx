@@ -13,6 +13,24 @@ import { Alert, FlatList, Modal, ActivityIndicator as RNActivityIndicator, TextI
 import { Button, HelperText, Text, TextInput, useTheme } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+interface PSGCLocation {
+    code: string;
+    name: string;
+}
+
+function isPSGCLocation(value: unknown): value is PSGCLocation {
+    return typeof value === 'object'
+        && value !== null
+        && 'code' in value
+        && 'name' in value
+        && typeof value.code === 'string'
+        && typeof value.name === 'string';
+}
+
+function parsePSGCLocations(value: unknown): PSGCLocation[] {
+    return Array.isArray(value) ? value.filter(isPSGCLocation) : [];
+}
+
 export default function SellScreen() {
     const theme = useTheme();
     const insets = useSafeAreaInsets();
@@ -26,7 +44,7 @@ export default function SellScreen() {
     const [description, setDescription] = useState('');
     const [price, setPrice] = useState('');
     const [stock, setStock] = useState('1');
-    const [category, setCategory] = useState('');
+    const [category, setCategory] = useState<Id<"categories"> | ''>('');
 
     // Image state
     const [images, setImages] = useState<ImagePicker.ImagePickerAsset[]>([]);
@@ -35,10 +53,10 @@ export default function SellScreen() {
     const [error, setError] = useState<string | null>(null);
 
     // Location State
-    const [provinces, setProvinces] = useState<any[]>([]);
-    const [cities, setCities] = useState<any[]>([]);
-    const [selectedProvince, setSelectedProvince] = useState<any>(null);
-    const [selectedCity, setSelectedCity] = useState<any>(null);
+    const [provinces, setProvinces] = useState<PSGCLocation[]>([]);
+    const [cities, setCities] = useState<PSGCLocation[]>([]);
+    const [selectedProvince, setSelectedProvince] = useState<PSGCLocation | null>(null);
+    const [selectedCity, setSelectedCity] = useState<PSGCLocation | null>(null);
     const [locationModalVisible, setLocationModalVisible] = useState(false);
     const [modalType, setModalType] = useState<'province' | 'city'>('province');
     const [searchQuery, setSearchQuery] = useState('');
@@ -52,9 +70,9 @@ export default function SellScreen() {
         try {
             setLoadingLocations(true);
             const response = await fetch('https://psgc.gitlab.io/api/provinces/');
-            const data = await response.json();
+            const data = parsePSGCLocations(await response.json());
             // Sort alphabetically
-            const sorted = data.sort((a: any, b: any) => a.name.localeCompare(b.name));
+            const sorted = data.sort((a, b) => a.name.localeCompare(b.name));
             setProvinces(sorted);
         } catch (err) {
             console.error('Failed to fetch provinces:', err);
@@ -67,8 +85,8 @@ export default function SellScreen() {
         try {
             setLoadingLocations(true);
             const response = await fetch(`https://psgc.gitlab.io/api/provinces/${provinceCode}/cities-municipalities/`);
-            const data = await response.json();
-            const sorted = data.sort((a: any, b: any) => a.name.localeCompare(b.name));
+            const data = parsePSGCLocations(await response.json());
+            const sorted = data.sort((a, b) => a.name.localeCompare(b.name));
             setCities(sorted);
         } catch (err) {
             console.error('Failed to fetch cities:', err);
@@ -77,7 +95,7 @@ export default function SellScreen() {
         }
     };
 
-    const handleSelectProvince = (province: any) => {
+    const handleSelectProvince = (province: PSGCLocation) => {
         setSelectedProvince(province);
         setSelectedCity(null);
         setCities([]);
@@ -86,7 +104,7 @@ export default function SellScreen() {
         setSearchQuery('');
     };
 
-    const handleSelectCity = (city: any) => {
+    const handleSelectCity = (city: PSGCLocation) => {
         setSelectedCity(city);
         setLocationModalVisible(false);
         setSearchQuery('');
@@ -166,7 +184,7 @@ export default function SellScreen() {
                 description: description.trim(),
                 price: parseFloat(price),
                 stock: parseInt(stock) || 1,
-                categoryId: category as Id<"categories">,
+                categoryId: category,
                 city: selectedCity.name,
                 province: selectedProvince.name,
                 images: uploadedUrls,
@@ -193,8 +211,9 @@ export default function SellScreen() {
                     },
                 ]
             );
-        } catch (err: any) {
-            setError(err.message || 'Failed to list product');
+        } catch (err) {
+            const message = err instanceof Error ? err.message : 'Failed to list product';
+            setError(message);
         } finally {
             setLoading(false);
         }

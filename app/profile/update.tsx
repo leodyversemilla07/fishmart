@@ -48,8 +48,9 @@ export default function UpdateProfileScreen() {
                 const asset = result.assets[0];
                 setNewImage({ uri: asset.uri, base64: asset.base64 });
             }
-        } catch (e: any) {
-            Alert.alert('Error', e.message);
+        } catch (e) {
+            const message = e instanceof Error ? e.message : 'Failed to pick image';
+            Alert.alert('Error', message);
         }
     };
 
@@ -74,7 +75,16 @@ export default function UpdateProfileScreen() {
             // Logic: if `newImage` is present, pass `shopLogo`. If not, don't pass `shopLogo` to avoid overwriting 
             // storage ID with signed URL (which expires).
 
-            const updates: any = {
+            const updates: {
+                sessionToken: string;
+                firstName: string;
+                middleName: string;
+                lastName: string;
+                phoneNumber: string;
+                shopName: string;
+                shopDescription: string;
+                shopLogo?: string;
+            } = {
                 sessionToken,
                 firstName,
                 middleName,

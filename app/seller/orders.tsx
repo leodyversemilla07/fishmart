@@ -1,22 +1,37 @@
 import { api } from '@/convex/_generated/api';
+import { Id } from '@/convex/_generated/dataModel';
 import { useAuthStore } from '@/store/authStore';
 import { useMutation, useQuery } from 'convex/react';
 import { router } from 'expo-router';
-import { LucideArrowLeft, LucideCheckCircle, LucideClipboardList, LucidePackage, LucidePhone, LucideTruck, LucideX } from 'lucide-react-native';
+import { LucideArrowLeft, LucideCheckCircle, LucideClipboardList, LucidePackage, LucidePhone, LucideTruck, LucideX, type LucideIcon } from 'lucide-react-native';
 import React, { useState } from 'react';
 import { Alert, FlatList, Modal, RefreshControl, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { ActivityIndicator, Button, Card, Chip, Divider, Text, TextInput, useTheme } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-type OrderStatus = 'PENDING' | 'CONFIRMED' | 'PROCESSING' | 'SHIPPED' | 'DELIVERED' | 'CANCELLED';
+type OrderStatus = 'PENDING' | 'CONFIRMED' | 'PROCESSING' | 'SHIPPED' | 'DELIVERED' | 'CANCELLED' | 'REFUNDED';
+type SellerOrderItem = { _id: string; productName: string; quantity: number; subtotal: number };
+type SellerOrder = {
+    _id: Id<"orders">;
+    _creationTime: number;
+    orderNumber: string;
+    status: OrderStatus;
+    total: number;
+    trackingNumber?: string;
+    courier?: string;
+    buyer?: { firstName?: string; middleName?: string; lastName?: string; phoneNumber?: string } | null;
+    address?: { phoneNumber?: string; streetAddress?: string; barangay?: string; city?: string; province?: string } | null;
+    items: SellerOrderItem[];
+};
 
-const STATUS_FLOW: Record<OrderStatus, { next: OrderStatus | null; label: string; icon: any }> = {
+const STATUS_FLOW: Record<OrderStatus, { next: OrderStatus | null; label: string; icon: LucideIcon }> = {
     PENDING: { next: 'CONFIRMED', label: 'Confirm Order', icon: LucideCheckCircle },
     CONFIRMED: { next: 'PROCESSING', label: 'Start Processing', icon: LucidePackage },
     PROCESSING: { next: 'SHIPPED', label: 'Mark as Shipped', icon: LucideTruck },
     SHIPPED: { next: 'DELIVERED', label: 'Mark Delivered', icon: LucideCheckCircle },
     DELIVERED: { next: null, label: 'Completed', icon: LucideCheckCircle },
     CANCELLED: { next: null, label: 'Cancelled', icon: LucideX },
+    REFUNDED: { next: null, label: 'Refunded', icon: LucideX },
 };
 
 export default function SellerOrdersScreen() {
@@ -29,35 +44,59 @@ export default function SellerOrdersScreen() {
     const updateOrderStatus = useMutation(api.orders.updateStatus);
 
     const loading = orders === undefined;
-    const sellerOrders = orders || [];
+    const sellerOrders: SellerOrder[] = (orders ?? []).flatMap((order) => {
+        if (!order) return [];
+        return [{
+            _id: order._id,
+            _creationTime: order._creationTime,
+            orderNumber: order.orderNumber,
+            status: order.status,
+            total: order.total,
+            trackingNumber: order.trackingNumber,
+            courier: order.courier,
+            buyer: order.buyer,
+            address: order.address,
+            items: order.items.map((orderItem) => ({
+                _id: orderItem._id,
+                productName: orderItem.productName,
+                quantity: orderItem.quantity,
+                subtotal: orderItem.subtotal,
+            })),
+        }];
+    });
     
     // Shipping modal state
     const [shippingModalVisible, setShippingModalVisible] = useState(false);
-    const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
+    const [selectedOrderId, setSelectedOrderId] = useState<Id<"orders"> | null>(null);
     const [trackingNumber, setTrackingNumber] = useState('');
     const [courier, setCourier] = useState('');
     const [updating, setUpdating] = useState(false);
 
-    const handleUpdateStatus = async (orderId: string, newStatus: OrderStatus, tracking?: string, courierName?: string) => {
+    const handleUpdateStatus = async (orderId: Id<"orders">, newStatus: OrderStatus, tracking?: string, courierName?: string) => {
+        if (!sessionToken) {
+            Alert.alert('Error', 'Session expired. Please log in again.');
+            return;
+        }
+
         setUpdating(true);
         try {
             await updateOrderStatus({
-                sessionToken: sessionToken as string,
-                orderId: orderId as any,
+                sessionToken,
+                orderId,
                 status: newStatus,
                 trackingNumber: tracking,
                 courier: courierName,
             });
             Alert.alert('Success', `Order status updated to ${newStatus}`);
-        } catch (error) {
+        } catch {
             Alert.alert('Error', 'Failed to update status');
         } finally {
             setUpdating(false);
         }
     };
 
-    const handleNextStatus = (order: any) => {
-        const currentStatus = order.status as OrderStatus;
+    const handleNextStatus = (order: SellerOrder) => {
+        const currentStatus = order.status;
         const nextStatus = STATUS_FLOW[currentStatus]?.next;
 
         if (!nextStatus) return;
@@ -90,7 +129,7 @@ export default function SellerOrdersScreen() {
         setSelectedOrderId(null);
     };
 
-    const handleCancelOrder = (orderId: string) => {
+    const handleCancelOrder = (orderId: Id<"orders">) => {
         Alert.alert(
             'Cancel Order',
             'Are you sure you want to cancel this order? This action cannot be undone.',
@@ -113,12 +152,13 @@ export default function SellerOrdersScreen() {
             case 'SHIPPED': return '#06B6D4';
             case 'DELIVERED': return '#10B981';
             case 'CANCELLED': return '#EF4444';
+            case 'REFUNDED': return '#6B7280';
             default: return '#64748B';
         }
     };
 
-    const renderOrderItem = ({ item }: { item: any }) => {
-        const currentStatus = item.status as OrderStatus;
+    const renderOrderItem = ({ item }: { item: SellerOrder }) => {
+        const currentStatus = item.status;
         const statusInfo = STATUS_FLOW[currentStatus];
         const canProgress = statusInfo?.next && currentStatus !== 'CANCELLED' && currentStatus !== 'DELIVERED';
         const canCancel = currentStatus === 'PENDING' || currentStatus === 'CONFIRMED';
@@ -162,7 +202,7 @@ export default function SellerOrdersScreen() {
                     <Divider style={styles.divider} />
 
                     {/* Product List */}
-                    {item.items.map((orderItem: any) => (
+                    {item.items.map((orderItem) => (
                         <View key={orderItem._id} style={styles.productRow}>
                             <Text variant="bodyMedium" style={{ flex: 1 }} numberOfLines={1}>{orderItem.productName}</Text>
                             <Text variant="bodyMedium" style={styles.quantity}>x{orderItem.quantity}</Text>
@@ -241,7 +281,7 @@ export default function SellerOrdersScreen() {
                 <FlatList
                     data={sellerOrders}
                     renderItem={renderOrderItem}
-                    keyExtractor={item => item?._id ?? ''}
+                    keyExtractor={item => item._id}
                     contentContainerStyle={styles.listContent}
                     refreshControl={
                         <RefreshControl refreshing={false} onRefresh={() => { }} />

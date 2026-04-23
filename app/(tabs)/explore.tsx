@@ -1,4 +1,5 @@
 import { api } from '@/convex/_generated/api';
+import { Id } from '@/convex/_generated/dataModel';
 import { Category, Product } from '@/types';
 import { useQuery } from 'convex/react';
 import { Image } from 'expo-image';
@@ -55,7 +56,7 @@ export default function ExploreScreen() {
   const params = useLocalSearchParams<{ search?: string, category?: string }>();
 
   const [searchQuery, setSearchQuery] = useState(params.search || '');
-  const [selectedCategory, setSelectedCategory] = useState<string>(params.category || 'all');
+  const [selectedCategory, setSelectedCategory] = useState<'all' | Id<"categories">>('all');
 
   // Sync search query from URL params when navigating from home
   useEffect(() => {
@@ -74,20 +75,22 @@ export default function ExploreScreen() {
 
   // Sync category selection when navigating with category param
   useEffect(() => {
-    if (categoryIdFromSlug) {
+    if (params.category === 'all') {
+      setSelectedCategory('all');
+    } else if (categoryIdFromSlug) {
       setSelectedCategory(categoryIdFromSlug);
     }
-  }, [categoryIdFromSlug]);
+  }, [categoryIdFromSlug, params.category]);
 
   // Build query args dynamically
-  const activeCategoryId = selectedCategory !== 'all' 
+  const activeCategoryId = selectedCategory !== 'all'
     ? selectedCategory 
     : categoryIdFromSlug;
 
   const products = useQuery(api.products.list, {
     search: searchQuery.trim() || undefined,
     status: "ACTIVE",
-    categoryId: activeCategoryId as any,
+    categoryId: activeCategoryId,
   });
 
   // Filter States
@@ -99,6 +102,11 @@ export default function ExploreScreen() {
 
   const loading = products === undefined;
   const [refreshing, setRefreshing] = useState(false);
+
+  const handleRefresh = () => {
+    setRefreshing(true);
+    setTimeout(() => setRefreshing(false), 800);
+  };
 
   const applyFilters = () => {
     setFilterVisible(false);
@@ -208,7 +216,7 @@ export default function ExploreScreen() {
           numColumns={2}
           columnWrapperStyle={styles.productRow}
           contentContainerStyle={styles.productsContainer}
-          onRefresh={() => setRefreshing(true)}
+          onRefresh={handleRefresh}
           refreshing={refreshing}
           ListEmptyComponent={
             <View style={styles.emptyContainer}>

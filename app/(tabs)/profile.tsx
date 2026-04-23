@@ -2,9 +2,9 @@ import { api } from '@/convex/_generated/api';
 import { useAuthStore } from '@/store/authStore';
 import { useAction, useQuery } from 'convex/react';
 import { router } from 'expo-router';
-import { LucideHelpCircle, LucidePackageCheck, LucideSettings, LucideShoppingBag, LucideStore } from 'lucide-react-native';
-import React, { useState } from 'react';
-import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import { LucideHelpCircle, LucidePackageCheck, LucideSettings, LucideShoppingBag, LucideStore, LucideShieldCheck } from 'lucide-react-native';
+import React from 'react';
+import { ScrollView, StyleSheet, View } from 'react-native';
 import { ActivityIndicator, Avatar, Button, Card, Divider, List, Text, useTheme } from 'react-native-paper';
 
 export default function ProfileScreen() {
@@ -15,7 +15,6 @@ export default function ProfileScreen() {
     const profile = useQuery(api.users.getProfileById, sessionToken ? { sessionToken } : "skip");
     const signOut = useAction(api.auth.signOut);
     const loading = profile === undefined;
-    const [refreshing, setRefreshing] = useState(false);
 
     const handleSignOut = async () => {
         if (sessionToken) {
@@ -52,9 +51,6 @@ export default function ProfileScreen() {
         <ScrollView
             style={styles.container}
             showsVerticalScrollIndicator={false}
-            refreshControl={
-                <RefreshControl refreshing={refreshing} onRefresh={() => { }} />
-            }
         >
             {/* Profile Header */}
             <View style={[styles.header, { backgroundColor: theme.colors.primary }]}>
@@ -108,33 +104,45 @@ export default function ProfileScreen() {
                     <List.Item
                         title="Incoming Orders"
                         description="Manage orders from buyers"
-                        left={(props: any) => <LucidePackageCheck {...props} size={24} color={theme.colors.outline} />}
-                        right={(props: any) => <List.Icon {...props} icon="chevron-right" />}
+                        left={() => <LucidePackageCheck size={24} color={theme.colors.outline} />}
+                        right={() => <List.Icon icon="chevron-right" />}
                         onPress={() => router.push('/seller/orders')}
                     />
                     <Divider />
                     <List.Item
                         title="My Listings"
                         description="Manage your listed items"
-                        left={(props: any) => <LucideStore {...props} size={24} color={theme.colors.outline} />}
-                        right={(props: any) => <List.Icon {...props} icon="chevron-right" />}
+                        left={() => <LucideStore size={24} color={theme.colors.outline} />}
+                        right={() => <List.Icon icon="chevron-right" />}
                         onPress={() => router.push('/seller/listings')}
                     />
+                    {user.role === 'ADMIN' && (
+                        <>
+                            <Divider />
+                            <List.Item
+                                title="Reservation Metrics"
+                                description="Monitor order reservation health"
+                                left={() => <LucideShieldCheck size={24} color={theme.colors.outline} />}
+                                right={() => <List.Icon icon="chevron-right" />}
+                                onPress={() => router.push('/profile/reservations')}
+                            />
+                        </>
+                    )}
                 </List.Section>
 
                 <List.Section style={styles.listSection}>
                     <List.Subheader>Account Settings</List.Subheader>
                     <List.Item
                         title="My Orders"
-                        left={(props: any) => <LucideShoppingBag {...props} size={24} color={theme.colors.outline} />}
-                        right={(props: any) => <List.Icon {...props} icon="chevron-right" />}
+                        left={() => <LucideShoppingBag size={24} color={theme.colors.outline} />}
+                        right={() => <List.Icon icon="chevron-right" />}
                         onPress={() => router.push('/orders')}
                     />
                     <Divider />
                     <List.Item
                         title="Update Profile"
-                        left={(props: any) => <LucideSettings {...props} size={24} color={theme.colors.outline} />}
-                        right={(props: any) => <List.Icon {...props} icon="chevron-right" />}
+                        left={() => <LucideSettings size={24} color={theme.colors.outline} />}
+                        right={() => <List.Icon icon="chevron-right" />}
                         onPress={() => router.push('/profile/update')}
                     />
                 </List.Section>
@@ -143,7 +151,7 @@ export default function ProfileScreen() {
                     <List.Subheader>Support</List.Subheader>
                     <List.Item
                         title="Help Center"
-                        left={(props: any) => <LucideHelpCircle {...props} size={24} color={theme.colors.outline} />}
+                        left={() => <LucideHelpCircle size={24} color={theme.colors.outline} />}
                         onPress={() => { }}
                     />
                 </List.Section>

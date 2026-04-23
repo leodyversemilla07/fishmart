@@ -1,6 +1,7 @@
 import { api } from '@/convex/_generated/api';
+import { Id } from '@/convex/_generated/dataModel';
 import { useAuthStore } from '@/store/authStore';
-import { useAction, useQuery } from 'convex/react';
+import { useAction, useMutation, useQuery } from 'convex/react';
 import { Image as ExpoImage } from 'expo-image';
 import * as Linking from 'expo-linking';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -13,21 +14,42 @@ import {
     LucidePackage,
     LucideTruck
 } from 'lucide-react-native';
-import React from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
+import React, { useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, Alert, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { Button, Card, Chip, Divider, Text, useTheme } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+type OrderItemRow = {
+    _id: string;
+    productId: Id<"products">;
+    sellerId: Id<"users">;
+    productName: string;
+    productImage?: string;
+    quantity: number;
+    price: number;
+    subtotal: number;
+};
+
+function formatRemainingTime(ms: number) {
+    if (ms <= 0) return 'Expired';
+    const totalSeconds = Math.floor(ms / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `${minutes}m ${seconds}s`;
+}
 
 export default function OrderDetailsScreen() {
     const theme = useTheme();
     const insets = useSafeAreaInsets();
-    const { id } = useLocalSearchParams<{ id: string }>();
+    const { id: orderId } = useLocalSearchParams<{ id: Id<"orders"> }>();
     const { sessionToken } = useAuthStore();
 
     // Convex Query
-    const order = useQuery(api.orders.get, sessionToken ? { sessionToken, id: id as any } : "skip");
+    const order = useQuery(api.orders.get, sessionToken && orderId ? { sessionToken, id: orderId } : "skip");
     const retryPayment = useAction(api.orders.retryPayment);
+    const ensureConversation = useMutation(api.chat.ensureConversation);
     const loading = order === undefined;
+    const [now, setNow] = useState(Date.now());
 
     const getStatusColor = (status: string) => {
         switch (status) {
@@ -75,21 +97,78 @@ export default function OrderDetailsScreen() {
     };
 
     const handleRetryPayment = async () => {
-        if (!sessionToken || !id) return;
-        const result = await retryPayment({
-            sessionToken,
-            orderId: id as any,
-            successUrl: Linking.createURL('payment-success', { queryParams: { orderId: id } }),
-            cancelUrl: Linking.createURL('payment-cancelled', { queryParams: { orderId: id } }),
-        });
-        if ('error' in result) {
+        if (!sessionToken || !orderId) return;
+        try {
+            const result = await retryPayment({
+                sessionToken,
+                orderId,
+                successUrl: Linking.createURL('payment-success', { queryParams: { orderId } }),
+                cancelUrl: Linking.createURL('payment-cancelled', { queryParams: { orderId } }),
+            });
+            if ('error' in result) {
+                Alert.alert('Payment Error', result.error);
+                return;
+            }
+            await WebBrowser.openBrowserAsync(result.checkoutUrl, {
+                dismissButtonStyle: 'cancel',
+                presentationStyle: WebBrowser.WebBrowserPresentationStyle.FULL_SCREEN,
+            });
+        } catch (error) {
+            console.error('Failed to retry payment:', error);
+            Alert.alert('Payment Error', 'Unable to retry payment right now. Please try again.');
+        }
+    };
+
+    const handleContactSeller = async () => {
+        if (!sessionToken) {
+            Alert.alert('Login required', 'Please log in to message the seller.');
             return;
         }
-        await WebBrowser.openBrowserAsync(result.checkoutUrl, {
-            dismissButtonStyle: 'cancel',
-            presentationStyle: WebBrowser.WebBrowserPresentationStyle.FULL_SCREEN,
-        });
+
+        const sellerId = order?.items?.[0]?.sellerId;
+        if (!sellerId) {
+            router.push('/(tabs)/messages');
+            return;
+        }
+
+        try {
+            const result = await ensureConversation({
+                sessionToken,
+                recipientId: sellerId,
+            });
+
+            router.push({
+                pathname: '/chat/[id]',
+                params: {
+                    id: result.conversationId,
+                    recipientName: 'Seller',
+                    recipientId: sellerId,
+                },
+            });
+        } catch (error) {
+            console.error('Failed to open seller chat:', error);
+            Alert.alert('Error', 'Unable to open chat right now.');
+        }
     };
+
+    const reservationRemainingMs = useMemo(() => {
+        if (!order?.reservationExpiresAt) return null;
+        return order.reservationExpiresAt - now;
+    }, [order?.reservationExpiresAt, now]);
+
+    const showReservationTimer = Boolean(
+        order &&
+        order.paymentMethod !== 'COD' &&
+        order.paymentStatus !== 'PAID' &&
+        order.status === 'PENDING' &&
+        order.reservationExpiresAt
+    );
+
+    useEffect(() => {
+        if (!showReservationTimer) return;
+        const timer = setInterval(() => setNow(Date.now()), 1000);
+        return () => clearInterval(timer);
+    }, [showReservationTimer]);
 
     if (loading) {
         return (
@@ -158,6 +237,23 @@ export default function OrderDetailsScreen() {
                                 </Text>
                             </View>
                         )}
+
+                        {showReservationTimer && reservationRemainingMs !== null && (
+                            <View style={styles.reservationInfo}>
+                                <Text variant="bodySmall" style={styles.reservationLabel}>
+                                    Payment window remaining
+                                </Text>
+                                <Text
+                                    variant="titleSmall"
+                                    style={[
+                                        styles.reservationValue,
+                                        reservationRemainingMs > 0 ? styles.reservationActive : styles.reservationExpired,
+                                    ]}
+                                >
+                                    {formatRemainingTime(reservationRemainingMs)}
+                                </Text>
+                            </View>
+                        )}
                     </Card.Content>
                 </Card>
 
@@ -166,7 +262,7 @@ export default function OrderDetailsScreen() {
                     <Card.Content>
                         <Text variant="titleMedium" style={styles.sectionTitle}>Order Items</Text>
 
-                        {order.items.map((item: any, index: number) => (
+                        {order.items.map((item: OrderItemRow, index: number) => (
                             <View key={item._id}>
                                 <TouchableOpacity
                                     style={styles.orderItem}
@@ -292,7 +388,7 @@ export default function OrderDetailsScreen() {
                     <Button
                         mode="outlined"
                         style={styles.actionButton}
-                        onPress={() => router.push('/(tabs)/messages')}
+                        onPress={handleContactSeller}
                     >
                         Contact Seller
                     </Button>
@@ -375,6 +471,27 @@ const styles = StyleSheet.create({
     },
     trackingText: {
         color: '#64748B',
+    },
+    reservationInfo: {
+        marginTop: 12,
+        padding: 12,
+        borderRadius: 8,
+        backgroundColor: '#FFF7ED',
+        borderWidth: 1,
+        borderColor: '#FED7AA',
+    },
+    reservationLabel: {
+        color: '#9A3412',
+        marginBottom: 4,
+    },
+    reservationValue: {
+        fontWeight: '700',
+    },
+    reservationActive: {
+        color: '#C2410C',
+    },
+    reservationExpired: {
+        color: '#B91C1C',
     },
     card: {
         marginBottom: 16,

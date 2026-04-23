@@ -1,7 +1,6 @@
 import { api } from '@/convex/_generated/api';
 import { Id } from '@/convex/_generated/dataModel';
 import { useAuthStore } from '@/store/authStore';
-import { Address } from '@/types';
 import { useMutation, useQuery } from 'convex/react';
 import { router, useLocalSearchParams } from 'expo-router';
 import { LucideArrowLeft } from 'lucide-react-native';
@@ -13,12 +12,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 export default function AddressFormScreen() {
     const theme = useTheme();
     const insets = useSafeAreaInsets();
-    const { id } = useLocalSearchParams<{ id: string }>();
+    const { id } = useLocalSearchParams<{ id: Id<"addresses"> | 'new' }>();
     const { sessionToken } = useAuthStore();
 
-    const isEditing = id && id !== 'new';
+    const addressId = id && id !== 'new' ? id : null;
+    const isEditing = Boolean(addressId);
 
-    const address = useQuery(api.users.getAddress, sessionToken ? { sessionToken, id: id || 'new' } : "skip") as Address | null;
+    const address = useQuery(api.users.getAddress, sessionToken ? { sessionToken, id: id || 'new' } : "skip");
     const createAddressMutation = useMutation(api.users.addAddress);
     const updateAddressMutation = useMutation(api.users.updateAddress);
 
@@ -80,9 +80,9 @@ export default function AddressFormScreen() {
                 isDefault,
             };
 
-            if (isEditing) {
+            if (addressId) {
                 await updateAddressMutation({
-                    id: id as Id<"addresses">,
+                    id: addressId,
                     ...addressData
                 });
             } else {
@@ -94,8 +94,9 @@ export default function AddressFormScreen() {
                 isEditing ? 'Address updated successfully!' : 'Address added successfully!',
                 [{ text: 'OK', onPress: () => router.back() }]
             );
-        } catch (err: any) {
-            setError(err.message || 'Failed to save address');
+        } catch (err) {
+            const message = err instanceof Error ? err.message : 'Failed to save address';
+            setError(message);
         } finally {
             setSaving(false);
         }

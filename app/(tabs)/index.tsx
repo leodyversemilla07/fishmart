@@ -1,3 +1,4 @@
+import { ProductCard } from '@/components/fish/product-card';
 import { api } from '@/convex/_generated/api';
 import { useAuthStore } from '@/store/authStore';
 import { useCartStore } from '@/store/cartStore';
@@ -8,7 +9,7 @@ import { StatusBar } from 'expo-status-bar';
 import { LucideBell, LucideShoppingCart } from 'lucide-react-native';
 import { useState } from 'react';
 import { ImageBackground, RefreshControl, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
-import { ActivityIndicator, Avatar, Badge, Button, Card, Searchbar, Text, useTheme } from 'react-native-paper';
+import { ActivityIndicator, Avatar, Badge, Button, Searchbar, Text, useTheme } from 'react-native-paper';
 
 export default function HomeScreen() {
   const theme = useTheme();
@@ -68,26 +69,30 @@ export default function HomeScreen() {
             />
             <View style={styles.headerIcons}>
               <TouchableOpacity
-                onPress={() => router.push('/notifications' as any)}
-                style={styles.notificationIconContainer}
+                onPress={() => router.push('/notifications')}
+                style={styles.headerIconButton}
               >
-                <LucideBell color="white" size={24} style={styles.icon} />
-                {unreadCount > 0 && (
-                  <Badge style={styles.notificationBadge} size={16}>
-                    {unreadCount}
-                  </Badge>
-                )}
+                <View style={styles.iconWrapper}>
+                  <LucideBell color="white" size={24} />
+                  {unreadCount > 0 && (
+                    <Badge style={styles.notificationBadge} size={16}>
+                      {unreadCount}
+                    </Badge>
+                  )}
+                </View>
               </TouchableOpacity>
               <TouchableOpacity
-                onPress={() => router.push('/cart' as any)}
-                style={styles.cartIconContainer}
+                onPress={() => router.push('/cart')}
+                style={styles.headerIconButton}
               >
-                <LucideShoppingCart color="white" size={24} style={styles.icon} />
-                {cartCount > 0 && (
-                  <Badge style={styles.cartBadge} size={18}>
-                    {cartCount}
-                  </Badge>
-                )}
+                <View style={styles.iconWrapper}>
+                  <LucideShoppingCart color="white" size={24} />
+                  {cartCount > 0 && (
+                    <Badge style={styles.cartBadge} size={18}>
+                      {cartCount}
+                    </Badge>
+                  )}
+                </View>
               </TouchableOpacity>
             </View>
           </View>
@@ -97,7 +102,7 @@ export default function HomeScreen() {
               Find Your Perfect Aquatic Companion
             </Text>
             <Text variant="bodyLarge" style={styles.heroSubtitle}>
-              Philippines' premier marketplace for premium guppies and small fish.
+              Philippines&apos; premier marketplace for premium guppies and small fish.
             </Text>
           </View>
         </View>
@@ -124,7 +129,7 @@ export default function HomeScreen() {
           <ActivityIndicator style={{ marginVertical: 20 }} />
         ) : (
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.categoriesScroll}>
-            {categories.map((cat: any) => (
+            {categories.map((cat) => (
               <TouchableOpacity
                 key={cat._id}
                 style={styles.categoryCard}
@@ -151,21 +156,24 @@ export default function HomeScreen() {
           <ActivityIndicator style={{ marginVertical: 40 }} />
         ) : (
           <View style={styles.featuredGrid}>
-            {featuredProducts.map((product: any) => (
-              <Card
+            {featuredProducts.map((product) => (
+              <ProductCard
                 key={product._id}
-                style={styles.productCard}
-                onPress={() => router.push(`/product/${product._id}` as any)}
-              >
-                <Card.Cover source={{ uri: product.images?.[0]?.imageUrl || 'https://picsum.photos/seed/fish/400/300' }} />
-                <Card.Content style={styles.productContent}>
-                  <Text variant="titleMedium" numberOfLines={1}>{product.name}</Text>
-                  <Text variant="bodySmall" style={{ color: theme.colors.secondary }} numberOfLines={1}>
-                    {product.category?.name || 'Fish'}
-                  </Text>
-                  <Text variant="titleLarge" style={styles.price}>₱{product.price?.toLocaleString()}</Text>
-                </Card.Content>
-              </Card>
+                product={{
+                  id: product._id,
+                  name: product.name,
+                  price: product.price,
+                  images: product.images,
+                  category: product.category ?? undefined,
+                  stock: product.stock,
+                  city: product.city,
+                  province: product.province,
+                  rating: product.rating ?? undefined,
+                  reviewCount: product.reviewCount,
+                }}
+                onPress={() => router.push(`/product/${product._id}`)}
+                style={styles.homeProductCard}
+              />
             ))}
           </View>
         )}
@@ -205,22 +213,21 @@ const styles = StyleSheet.create({
   },
   headerIcons: {
     flexDirection: 'row',
+    gap: 8,
   },
-  icon: {
-    marginLeft: 15,
+  headerIconButton: {
+    width: 44,
+    height: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  notificationIconContainer: {
+  iconWrapper: {
     position: 'relative',
-    marginLeft: 15,
   },
   notificationBadge: {
     position: 'absolute',
-    top: -5,
-    right: -5,
-  },
-  cartIconContainer: {
-    position: 'relative',
-    marginLeft: 15,
+    top: -4,
+    right: -4,
   },
   cartBadge: {
     position: 'absolute',
@@ -280,18 +287,8 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     flexWrap: 'wrap',
   },
-  productCard: {
+  homeProductCard: {
     width: '48%',
     marginBottom: 20,
-    borderRadius: 15,
-    overflow: 'hidden',
-  },
-  productContent: {
-    paddingTop: 10,
-  },
-  price: {
-    marginTop: 5,
-    fontWeight: 'bold',
-    color: '#0061A4',
   },
 });

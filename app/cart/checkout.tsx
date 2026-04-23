@@ -1,4 +1,5 @@
 import { api } from '@/convex/_generated/api';
+import { Id } from '@/convex/_generated/dataModel';
 import { useAuthStore } from '@/store/authStore';
 import { useCartStore } from '@/store/cartStore';
 import { useAction, useMutation, useQuery } from 'convex/react';
@@ -6,7 +7,7 @@ import { router } from 'expo-router';
 import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
 import { LucideArrowLeft, LucideCreditCard, LucideMapPin, LucideTruck, LucideShield } from 'lucide-react-native';
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Alert, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { ActivityIndicator, Button, Card, Divider, RadioButton, Text, useTheme } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -19,6 +20,12 @@ const PAYMENT_METHODS = [
     { value: 'CARD', label: 'Credit/Debit Card', description: 'Visa, Mastercard accepted', requiresOnlinePayment: true },
 ] as const;
 
+type PaymentMethod = typeof PAYMENT_METHODS[number]['value'];
+
+function isPaymentMethod(value: string): value is PaymentMethod {
+    return PAYMENT_METHODS.some((method) => method.value === value);
+}
+
 export default function CheckoutScreen() {
     const theme = useTheme();
     const insets = useSafeAreaInsets();
@@ -29,20 +36,21 @@ export default function CheckoutScreen() {
     const profile = useQuery(api.users.getProfileById, sessionToken ? { sessionToken } : "skip");
     const createOrder = useMutation(api.orders.create);
     const createCheckoutSession = useAction(api.paymongo.createCheckoutSession);
+    const addresses = useMemo(() => profile?.addresses ?? [], [profile?.addresses]);
 
-    const [selectedAddress, setSelectedAddress] = useState<string | null>(null);
-    const [paymentMethod, setPaymentMethod] = useState('COD');
+    const [selectedAddress, setSelectedAddress] = useState<Id<"addresses"> | null>(null);
+    const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('COD');
     const [submitting, setSubmitting] = useState(false);
 
     // Effect to select default address
     React.useEffect(() => {
-        if (profile?.addresses && !selectedAddress) {
-            const defaultAddress = profile.addresses.find((a: any) => a.isDefault) || profile.addresses[0];
+        if (addresses.length > 0 && !selectedAddress) {
+            const defaultAddress = addresses.find((a) => a.isDefault) || addresses[0];
             if (defaultAddress) {
                 setSelectedAddress(defaultAddress._id);
             }
         }
-    }, [profile]);
+    }, [addresses, selectedAddress]);
 
     const shippingFee = 50; // Flat fee for demo
     const total = totalPrice() + shippingFee;
@@ -63,15 +71,15 @@ export default function CheckoutScreen() {
         setSubmitting(true);
         try {
             const orderItems = items.map(item => ({
-                productId: item.id as any,
+                productId: item.id,
                 quantity: item.quantity,
             }));
 
             // Create the order first
             const orderResult = await createOrder({
                 sessionToken,
-                addressId: selectedAddress as any,
-                paymentMethod: paymentMethod as any,
+                addressId: selectedAddress,
+                paymentMethod,
                 items: orderItems,
                 buyerNotes: "Standard delivery"
             });
@@ -79,12 +87,12 @@ export default function CheckoutScreen() {
             // If online payment is required, create PayMongo checkout session
             if (selectedPaymentConfig?.requiresOnlinePayment) {
                 // Generate deep link URLs for redirect
-                const successUrl = Linking.createURL('payment-success', { queryParams: { orderId: orderResult.orderId as string } });
-                const cancelUrl = Linking.createURL('payment-cancelled', { queryParams: { orderId: orderResult.orderId as string } });
+                const successUrl = Linking.createURL('payment-success', { queryParams: { orderId: String(orderResult.orderId) } });
+                const cancelUrl = Linking.createURL('payment-cancelled', { queryParams: { orderId: String(orderResult.orderId) } });
 
                 const checkoutResult = await createCheckoutSession({
                     sessionToken,
-                    orderId: orderResult.orderId as any,
+                    orderId: orderResult.orderId,
                     successUrl,
                     cancelUrl,
                 });
@@ -104,7 +112,7 @@ export default function CheckoutScreen() {
                     Alert.alert(
                         'Payment Cancelled',
                         'Your order has been created but payment was not completed. You can complete payment later from your orders.',
-                        [{ text: 'View Orders', onPress: () => router.push('/orders' as any) }]
+                        [{ text: 'View Orders', onPress: () => router.push('/orders') }]
                     );
                 } else {
                     // Payment completed or user returned
@@ -112,7 +120,7 @@ export default function CheckoutScreen() {
                     Alert.alert(
                         'Order Placed',
                         'Your order has been placed. You will receive a notification once payment is confirmed.',
-                        [{ text: 'View Orders', onPress: () => router.push('/orders' as any) }]
+                        [{ text: 'View Orders', onPress: () => router.push('/orders') }]
                     );
                 }
             } else {
@@ -121,7 +129,7 @@ export default function CheckoutScreen() {
                 Alert.alert(
                     'Success',
                     'Your order has been placed successfully! Pay cash when you receive your order.',
-                    [{ text: 'View Orders', onPress: () => router.push('/orders' as any) }]
+                    [{ text: 'View Orders', onPress: () => router.push('/orders') }]
                 );
             }
         } catch (error) {
@@ -159,8 +167,8 @@ export default function CheckoutScreen() {
                         <Text variant="titleMedium" style={styles.sectionTitle}>Delivery Address</Text>
                     </View>
 
-                    {profile?.addresses && profile.addresses.length > 0 ? (
-                        profile.addresses.map((addr: any) => (
+                    {addresses.length > 0 ? (
+                        addresses.map((addr) => (
                             <TouchableOpacity
                                 key={addr._id}
                                 style={[
@@ -190,7 +198,7 @@ export default function CheckoutScreen() {
                                 <Button
                                     mode="outlined"
                                     style={{ marginTop: 10 }}
-                                    onPress={() => router.push('/profile/address/new' as any)}
+                                    onPress={() => router.push('/profile/address/new')}
                                 >
                                     Add New Address
                                 </Button>
@@ -206,7 +214,14 @@ export default function CheckoutScreen() {
                         <Text variant="titleMedium" style={styles.sectionTitle}>Payment Method</Text>
                     </View>
 
-                    <RadioButton.Group onValueChange={value => setPaymentMethod(value)} value={paymentMethod}>
+                    <RadioButton.Group
+                        onValueChange={(value) => {
+                            if (isPaymentMethod(value)) {
+                                setPaymentMethod(value);
+                            }
+                        }}
+                        value={paymentMethod}
+                    >
                         {PAYMENT_METHODS.map((method) => (
                             <TouchableOpacity
                                 key={method.value}

@@ -17,14 +17,15 @@ export default function MyListingsScreen() {
     // Convex Hooks
     const productsQuery = useQuery(
         api.products.list,
-        convexUser?._id ? { sellerId: convexUser._id as any } : "skip"
+        convexUser?._id ? { sellerId: convexUser._id } : "skip"
     );
     const products = productsQuery ?? [];
+    type ListingProduct = NonNullable<(typeof products)[number]>;
     const deleteProduct = useMutation(api.products.deleteProduct);
 
     const loading = productsQuery === undefined;
 
-    const handleDelete = (id: string, name: string) => {
+    const handleDelete = (id: ListingProduct["_id"], name: string) => {
         Alert.alert(
             'Delete Product',
             `Are you sure you want to delete "${name}"? This cannot be undone.`,
@@ -36,9 +37,10 @@ export default function MyListingsScreen() {
                     onPress: async () => {
                         try {
                             if (!sessionToken) return;
-                            await deleteProduct({ sessionToken, id: id as any });
-                        } catch (err: any) {
-                            Alert.alert('Error', err.message || 'Failed to delete product');
+                            await deleteProduct({ sessionToken, id });
+                        } catch (err) {
+                            const message = err instanceof Error ? err.message : 'Failed to delete product';
+                            Alert.alert('Error', message);
                         }
                     }
                 }
@@ -46,7 +48,7 @@ export default function MyListingsScreen() {
         );
     };
 
-    const renderItem = ({ item }: { item: any }) => {
+    const renderItem = ({ item }: { item: ListingProduct }) => {
         const coverImage = item.images && item.images.length > 0 ? item.images[0].imageUrl : null;
 
         return (
@@ -131,7 +133,7 @@ export default function MyListingsScreen() {
                             <Button
                                 mode="contained"
                                 style={styles.emptyButton}
-                                onPress={() => router.push('/(tabs)/sell' as any)}
+                                onPress={() => router.push('/(tabs)/sell')}
                             >
                                 List an Item
                             </Button>
@@ -143,7 +145,7 @@ export default function MyListingsScreen() {
             <FAB
                 icon={({ size, color }) => <LucidePlus size={24} color={color} />}
                 style={[styles.fab, { bottom: insets.bottom + 20 }]}
-                onPress={() => router.push('/(tabs)/sell' as any)}
+                onPress={() => router.push('/(tabs)/sell')}
                 label="Add New"
             />
         </View>

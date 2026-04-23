@@ -44,9 +44,9 @@ export default function NotificationsScreen() {
 
         // Navigate based on type
         if (notification.type.startsWith('ORDER')) {
-            router.push('/orders' as any);
+            router.push('/orders');
         } else if (notification.type === 'NEW_MESSAGE') {
-            router.push('/(tabs)/messages' as any);
+            router.push('/(tabs)/messages');
         }
     };
 
@@ -139,7 +139,7 @@ export default function NotificationsScreen() {
                             </View>
                             <Text variant="titleMedium" style={styles.emptyTitle}>No notifications yet</Text>
                             <Text variant="bodyMedium" style={styles.emptySubtitle}>
-                                We'll let you know when something important happens.
+                                We&apos;ll let you know when something important happens.
                             </Text>
                         </View>
                     }

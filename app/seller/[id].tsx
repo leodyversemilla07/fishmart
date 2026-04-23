@@ -1,19 +1,23 @@
 import { api } from '@/convex/_generated/api';
-import { useQuery } from 'convex/react';
+import { Id } from '@/convex/_generated/dataModel';
+import { useMutation, useQuery } from 'convex/react';
 import { router, useLocalSearchParams } from 'expo-router';
 import { LucideArrowLeft, LucideCalendar, LucideMessageCircle, LucideStar, LucideVerified } from 'lucide-react-native';
 import React from 'react';
-import { ActivityIndicator, FlatList, RefreshControl, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, FlatList, RefreshControl, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { Avatar, Button, Card, Divider, Text, useTheme } from 'react-native-paper';
+import { useAuthStore } from '@/store/authStore';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function SellerProfileScreen() {
     const theme = useTheme();
     const insets = useSafeAreaInsets();
-    const { id } = useLocalSearchParams<{ id: string }>();
+    const { id: sellerId } = useLocalSearchParams<{ id: Id<"users"> }>();
+    const { sessionToken } = useAuthStore();
 
     // Convex Query
-    const seller = useQuery(api.users.getPublicProfile, { id: id as any });
+    const seller = useQuery(api.users.getPublicProfile, sellerId ? { id: sellerId } : "skip");
+    const ensureConversation = useMutation(api.chat.ensureConversation);
     const loading = seller === undefined;
 
     if (loading) {
@@ -34,6 +38,33 @@ export default function SellerProfileScreen() {
     }
 
     const joinDate = new Date(seller._creationTime).toLocaleDateString();
+
+    const handleChatWithSeller = async () => {
+        if (!sellerId) return;
+        if (!sessionToken) {
+            Alert.alert('Login required', 'Please log in to message this seller.');
+            return;
+        }
+
+        try {
+            const result = await ensureConversation({
+                sessionToken,
+                recipientId: sellerId,
+            });
+
+            router.push({
+                pathname: '/chat/[id]',
+                params: {
+                    id: result.conversationId,
+                    recipientName: seller.shopName || `${seller.firstName} ${seller.lastName}`,
+                    recipientId: sellerId,
+                },
+            });
+        } catch (error) {
+            console.error('Failed to open seller chat:', error);
+            Alert.alert('Error', 'Could not open chat right now.');
+        }
+    };
 
     const renderHeader = () => (
         <View style={styles.headerContent}>
@@ -89,11 +120,7 @@ export default function SellerProfileScreen() {
                     mode="contained"
                     icon={() => <LucideMessageCircle size={18} color="white" />}
                     style={styles.chatButton}
-                    onPress={() => {
-                        // Start chat logic - assuming we find or create a conversation
-                        // For now we just navigate to chat if it exists or messages
-                        router.push('/(tabs)/messages');
-                    }}
+                    onPress={handleChatWithSeller}
                 >
                     Chat with Seller
                 </Button>
@@ -104,7 +131,7 @@ export default function SellerProfileScreen() {
         </View>
     );
 
-    const renderProductItem = ({ item }: { item: any }) => (
+    const renderProductItem = ({ item }: { item: (typeof seller.products)[number] }) => (
         <Card
             style={styles.productCard}
             onPress={() => router.push(`/product/${item._id}`)}
@@ -117,7 +144,7 @@ export default function SellerProfileScreen() {
         </Card>
     );
 
-    const renderReviewItem = (review: any) => (
+    const renderReviewItem = (review: (typeof seller.recentReviews)[number]) => (
         <View key={review._id} style={styles.reviewItem}>
             <View style={styles.reviewHeader}>
                 <Text variant="labelLarge">{review.user?.firstName} {review.user?.middleName ? review.user?.middleName + ' ' : ''}{review.user?.lastName}</Text>
@@ -160,7 +187,7 @@ export default function SellerProfileScreen() {
                             <Button
                                 mode="text"
                                 compact
-                                onPress={() => router.push(`/reviews/seller/${id}`)}
+                                onPress={() => sellerId && router.push(`/reviews/seller/${sellerId}`)}
                             >
                                 See All
                             </Button>

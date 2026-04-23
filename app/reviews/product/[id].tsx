@@ -1,4 +1,5 @@
 import { api } from '@/convex/_generated/api';
+import { Id } from '@/convex/_generated/dataModel';
 import { useQuery } from 'convex/react';
 import { Image as ExpoImage } from 'expo-image';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -11,12 +12,14 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 export default function ProductReviewsScreen() {
     const theme = useTheme();
     const insets = useSafeAreaInsets();
-    const { id } = useLocalSearchParams<{ id: string }>();
+    const { id: productId } = useLocalSearchParams<{ id: Id<"products"> }>();
 
-    const reviews = useQuery(api.reviews.listByProduct, { productId: id as any });
-    const loading = reviews === undefined;
+    const reviewsQuery = useQuery(api.reviews.listByProduct, productId ? { productId } : "skip");
+    const reviews = reviewsQuery ?? [];
+    type ProductReview = NonNullable<(typeof reviews)[number]>;
+    const loading = reviewsQuery === undefined;
 
-    const renderReviewItem = ({ item }: { item: any }) => {
+    const renderReviewItem = ({ item }: { item: ProductReview }) => {
         const date = new Date(item._creationTime).toLocaleDateString();
         return (
             <View style={styles.reviewCard}>

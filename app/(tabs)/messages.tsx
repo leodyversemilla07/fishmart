@@ -5,7 +5,7 @@ import { useQuery } from 'convex/react';
 import { router } from 'expo-router';
 import { LucideMessageSquare, LucideSearch } from 'lucide-react-native';
 import React, { useState } from 'react';
-import { ActivityIndicator, FlatList, RefreshControl, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, FlatList, StyleSheet, View } from 'react-native';
 import { Avatar, Divider, List, Text, TextInput, useTheme } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -16,9 +16,10 @@ export default function MessagesScreen() {
 
     // Convex Query
     const conversationsQuery = useQuery(api.chat.getConversations, sessionToken ? { sessionToken } : "skip");
-    const conversations = (conversationsQuery ?? []) as Conversation[];
+    const conversations = (conversationsQuery ?? []).filter(
+        (conv): conv is Conversation => Boolean(conv && typeof conv._id === 'string')
+    );
     const loading = conversationsQuery === undefined;
-    const [refreshing, setRefreshing] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
 
     const filteredConversations = conversations.filter((conv: Conversation) => {
@@ -47,7 +48,7 @@ export default function MessagesScreen() {
                 )}
                 right={() => <Text variant="bodySmall" style={styles.dateText}>{date}</Text>}
                 onPress={() => router.push({
-                    pathname: '/chat/[id]' as any, // Cast to any to avoid strict typing issues with dynamic routes for now if needed, or just string
+                    pathname: '/chat/[id]',
                     params: {
                         id: item._id,
                         recipientName: name,
@@ -90,9 +91,6 @@ export default function MessagesScreen() {
                     keyExtractor={item => item._id}
                     contentContainerStyle={styles.listContent}
                     ItemSeparatorComponent={() => <Divider style={styles.divider} />}
-                    refreshControl={
-                        <RefreshControl refreshing={refreshing} onRefresh={() => { }} />
-                    }
                     ListEmptyComponent={
                         <View style={styles.emptyContainer}>
                             <LucideMessageSquare size={64} color="#CBD5E1" />

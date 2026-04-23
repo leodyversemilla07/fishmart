@@ -1,4 +1,5 @@
 import { api } from '@/convex/_generated/api';
+import { Id } from '@/convex/_generated/dataModel';
 import { useAuthStore } from '@/store/authStore';
 import { useMutation, useQuery } from 'convex/react';
 import { Image as ExpoImage } from 'expo-image';
@@ -13,19 +14,21 @@ export default function SellerReviewsScreen() {
     const { convexUser, sessionToken } = useAuthStore();
     const theme = useTheme();
     const insets = useSafeAreaInsets();
-    const { id } = useLocalSearchParams<{ id: string }>();
+    const { id: sellerId } = useLocalSearchParams<{ id: Id<"users"> }>();
 
-    const reviews = useQuery(api.reviews.listBySeller, { sellerId: id as any });
+    const reviewsQuery = useQuery(api.reviews.listBySeller, sellerId ? { sellerId } : "skip");
+    const reviews = reviewsQuery ?? [];
+    type SellerReview = NonNullable<(typeof reviews)[number]>;
     const replyMutation = useMutation(api.reviews.replyToReview);
 
-    const loading = reviews === undefined;
+    const loading = reviewsQuery === undefined;
 
     // Reply state
     const [replyingTo, setReplyingTo] = useState<string | null>(null);
     const [replyText, setReplyText] = useState('');
     const [submittingReply, setSubmittingReply] = useState(false);
 
-    const handleReply = async (reviewId: string) => {
+    const handleReply = async (reviewId: Id<"reviews">) => {
         if (!replyText.trim()) return;
         if (!sessionToken) return;
 
@@ -33,7 +36,7 @@ export default function SellerReviewsScreen() {
         try {
             await replyMutation({
                 sessionToken,
-                reviewId: reviewId as any,
+                reviewId,
                 response: replyText,
             });
             setReplyingTo(null);
@@ -45,7 +48,7 @@ export default function SellerReviewsScreen() {
         }
     };
 
-    const renderReviewItem = ({ item }: { item: any }) => {
+    const renderReviewItem = ({ item }: { item: SellerReview }) => {
         const date = new Date(item._creationTime).toLocaleDateString();
         return (
             <View style={styles.reviewCard}>
@@ -99,7 +102,7 @@ export default function SellerReviewsScreen() {
                         </Text>
                     </View>
                 ) : (
-                    convexUser && convexUser._id === id && (
+                    convexUser && sellerId && convexUser._id === sellerId && (
                         <View style={styles.replyContainer}>
                             {replyingTo === item._id ? (
                                 <View>
@@ -171,7 +174,7 @@ export default function SellerReviewsScreen() {
                         <View style={styles.emptyContainer}>
                             <LucideStar size={64} color="#CBD5E1" />
                             <Text variant="titleMedium" style={styles.emptyText}>No reviews yet</Text>
-                            <Text variant="bodyMedium" style={styles.emptySubtext}>This seller hasn't received any reviews yet.</Text>
+                            <Text variant="bodyMedium" style={styles.emptySubtext}>This seller hasn&apos;t received any reviews yet.</Text>
                         </View>
                     }
                 />

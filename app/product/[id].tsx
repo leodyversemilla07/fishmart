@@ -1,8 +1,8 @@
 import { api } from '@/convex/_generated/api';
 import { Id } from '@/convex/_generated/dataModel';
+import { useAuthStore } from '@/store/authStore';
 import { useCartStore } from '@/store/cartStore';
-import { Review } from '@/types';
-import { useQuery } from 'convex/react';
+import { useMutation, useQuery } from 'convex/react';
 import { Image } from 'expo-image';
 import { router, useLocalSearchParams } from 'expo-router';
 import {
@@ -16,6 +16,7 @@ import {
 import { useRef, useState } from 'react';
 import {
     ActivityIndicator,
+    Alert,
     Dimensions,
     FlatList,
     NativeScrollEvent,
@@ -34,13 +35,15 @@ const IMAGE_HEIGHT = 350;
 export default function ProductDetailScreen() {
     const theme = useTheme();
     const insets = useSafeAreaInsets();
-    const { id } = useLocalSearchParams<{ id: string }>();
+    const { id } = useLocalSearchParams<{ id: Id<"products"> }>();
     const cart = useCartStore();
+    const { sessionToken } = useAuthStore();
+    const ensureConversation = useMutation(api.chat.ensureConversation);
 
     // Convex Hooks
-    const product = useQuery(api.products.get, { id: id as Id<"products"> });
-    const reviewsQuery = useQuery(api.reviews.listByProduct, { productId: id as Id<"products"> });
-    const reviews = (reviewsQuery ?? []) as Review[];
+    const product = useQuery(api.products.get, id ? { id } : "skip");
+    const reviewsQuery = useQuery(api.reviews.listByProduct, id ? { productId: id } : "skip");
+    const reviews = reviewsQuery ?? [];
 
     const loading = product === undefined;
     const [snackbarVisible, setSnackbarVisible] = useState(false);
@@ -54,6 +57,34 @@ export default function ProductDetailScreen() {
                 id: product._id, // Map Convex _id to store's id
             });
             setSnackbarVisible(true);
+        }
+    };
+
+    const handleMessageSeller = async () => {
+        if (!product) return;
+        if (!sessionToken) {
+            Alert.alert('Login required', 'Please log in to message the seller.');
+            return;
+        }
+
+        try {
+            const result = await ensureConversation({
+                sessionToken,
+                recipientId: product.sellerId,
+                productId: product._id,
+            });
+
+            router.push({
+                pathname: '/chat/[id]',
+                params: {
+                    id: result.conversationId,
+                    recipientName: sellerName,
+                    recipientId: product.sellerId,
+                },
+            });
+        } catch (error) {
+            console.error('Failed to open chat:', error);
+            Alert.alert('Error', 'Could not open chat right now. Please try again.');
         }
     };
 
@@ -269,6 +300,7 @@ export default function ProductDetailScreen() {
                         </View>
                         <TouchableOpacity
                             style={[styles.chatButton, { backgroundColor: theme.colors.primaryContainer }]}
+                            onPress={handleMessageSeller}
                         >
                             <LucideMessageCircle size={20} color={theme.colors.primary} />
                         </TouchableOpacity>
@@ -299,11 +331,11 @@ export default function ProductDetailScreen() {
                             >
                                 See All
                             </Button>
-                        )}
+                        ) : null}
                     </View>
 
                     {reviews.length > 0 ? (
-                        reviews.slice(0, 3).map((review: Review) => (
+                        reviews.slice(0, 3).map((review) => (
                             <View key={review._id} style={styles.reviewItem}>
                                 <View style={styles.reviewHeader}>
                                     <Avatar.Text
@@ -360,6 +392,7 @@ export default function ProductDetailScreen() {
                     icon="message-text"
                     style={styles.messageButton}
                     contentStyle={styles.buttonContent}
+                    onPress={handleMessageSeller}
                 >
                     Message
                 </Button>

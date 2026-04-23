@@ -1,4 +1,4 @@
-import { useCartStore } from '@/store/cartStore';
+import { useCartStore, type CartItem } from '@/store/cartStore';
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import {
@@ -47,7 +47,7 @@ export default function CartScreen() {
         );
     }
 
-    const renderItem = ({ item }: { item: any }) => (
+    const renderItem = ({ item }: { item: CartItem }) => (
         <View style={styles.cartItem}>
             <Image
                 source={{ uri: item.imageUrl }}
@@ -128,7 +128,7 @@ export default function CartScreen() {
                     mode="contained"
                     style={styles.checkoutButton}
                     contentStyle={styles.checkoutBtnContent}
-                    onPress={() => router.push('/cart/checkout' as any)}
+                    onPress={() => router.push('/cart/checkout')}
                 >
                     Proceed to Checkout
                 </Button>

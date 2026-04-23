@@ -1,4 +1,5 @@
 import { api } from '@/convex/_generated/api';
+import { Id } from '@/convex/_generated/dataModel';
 import { useAuthStore } from '@/store/authStore';
 import { Order } from '@/types';
 import { useAction, useQuery } from 'convex/react';
@@ -7,7 +8,7 @@ import * as WebBrowser from 'expo-web-browser';
 import { router } from 'expo-router';
 import { LucideArrowLeft, LucideBox, LucideChevronRight } from 'lucide-react-native';
 import React from 'react';
-import { FlatList, RefreshControl, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { Alert, FlatList, RefreshControl, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { ActivityIndicator, Card, Chip, Divider, Text, useTheme } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -33,19 +34,20 @@ export default function OrdersScreen() {
         }
     };
 
-    const handleRetryPayment = async (orderId: string) => {
+    const handleRetryPayment = async (orderId: Id<"orders">) => {
         if (!sessionToken) return;
         try {
             const successUrl = Linking.createURL('payment-success', { queryParams: { orderId } });
             const cancelUrl = Linking.createURL('payment-cancelled', { queryParams: { orderId } });
             const result = await retryPayment({
                 sessionToken,
-                orderId: orderId as any,
+                orderId,
                 successUrl,
                 cancelUrl,
             });
 
             if ('error' in result) {
+                Alert.alert('Payment Error', result.error);
                 return;
             }
 
@@ -55,6 +57,7 @@ export default function OrdersScreen() {
             });
         } catch (error) {
             console.error('Failed to retry payment:', error);
+            Alert.alert('Payment Error', 'Unable to retry payment right now. Please try again.');
         }
     };
 
@@ -93,7 +96,7 @@ export default function OrdersScreen() {
                         <Text variant="titleMedium" style={styles.totalPrice}>₱{item.total.toLocaleString()}</Text>
                     </View>
                     {showRetry && (
-                        <TouchableOpacity onPress={() => handleRetryPayment(item._id as any)}>
+                        <TouchableOpacity onPress={() => handleRetryPayment(item._id)}>
                             <Text style={[styles.retryText, { color: theme.colors.primary }]}>Retry Payment</Text>
                         </TouchableOpacity>
                     )}

@@ -6,6 +6,7 @@ import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
 import { router, useLocalSearchParams } from 'expo-router';
 import { LucideXCircle, LucideRefreshCw, LucideHome } from 'lucide-react-native';
+import * as Haptics from 'expo-haptics';
 import React, { useEffect } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { Button, Text, useTheme } from 'react-native-paper';
@@ -21,14 +22,14 @@ import Animated, {
 export default function PaymentCancelledScreen() {
     const theme = useTheme();
     const insets = useSafeAreaInsets();
-    const { orderId } = useLocalSearchParams<{ orderId: string }>();
+    const { orderId } = useLocalSearchParams<{ orderId: Id<"orders"> }>();
     const { sessionToken } = useAuthStore();
     const retryPayment = useAction(api.orders.retryPayment);
 
     // Fetch order details
     const order = useQuery(
         api.orders.get, 
-        orderId && sessionToken ? { sessionToken, id: orderId as Id<"orders"> } : "skip"
+        orderId && sessionToken ? { sessionToken, id: orderId } : "skip"
     );
 
     // Animation values
@@ -43,7 +44,10 @@ export default function PaymentCancelledScreen() {
         );
         // Fade in content
         opacity.value = withDelay(300, withSpring(1));
-    }, []);
+
+        // Haptic feedback on error
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    }, [opacity, scale]);
 
     const iconStyle = useAnimatedStyle(() => ({
         transform: [{ scale: scale.value }],
@@ -55,7 +59,7 @@ export default function PaymentCancelledScreen() {
 
     const handleRetryPayment = async () => {
         if (!sessionToken || !orderId) {
-            router.push('/orders' as any);
+            router.push('/orders');
             return;
         }
 
@@ -64,13 +68,13 @@ export default function PaymentCancelledScreen() {
             const cancelUrl = Linking.createURL('payment-cancelled', { queryParams: { orderId } });
             const result = await retryPayment({
                 sessionToken,
-                orderId: orderId as Id<"orders">,
+                orderId,
                 successUrl,
                 cancelUrl,
             });
 
             if ('error' in result) {
-                router.push(`/orders/${orderId}` as any);
+                router.push({ pathname: '/orders/[id]', params: { id: orderId } });
                 return;
             }
 
@@ -80,7 +84,7 @@ export default function PaymentCancelledScreen() {
             });
         } catch (error) {
             console.error('Failed to retry payment:', error);
-            router.push(`/orders/${orderId}` as any);
+            router.push({ pathname: '/orders/[id]', params: { id: orderId } });
         }
     };
 
@@ -99,7 +103,7 @@ export default function PaymentCancelledScreen() {
                     Payment Cancelled
                 </Text>
                 <Text variant="bodyLarge" style={styles.subtitle}>
-                    Your payment was not completed. Don't worry, your order has been saved.
+                    Your payment was not completed. Don&apos;t worry, your order has been saved.
                 </Text>
 
                 {order && (
@@ -244,6 +248,6 @@ const styles = StyleSheet.create({
         borderRadius: 12,
     },
     buttonContent: {
-        paddingVertical: 8,
+        paddingVertical: 12,
     },
 });

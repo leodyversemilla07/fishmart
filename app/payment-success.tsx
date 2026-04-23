@@ -4,6 +4,7 @@ import { useAuthStore } from '@/store/authStore';
 import { useQuery } from 'convex/react';
 import { router, useLocalSearchParams } from 'expo-router';
 import { LucideCheckCircle, LucidePackage, LucideHome } from 'lucide-react-native';
+import * as Haptics from 'expo-haptics';
 import React, { useEffect } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { Button, Text, useTheme } from 'react-native-paper';
@@ -19,13 +20,13 @@ import Animated, {
 export default function PaymentSuccessScreen() {
     const theme = useTheme();
     const insets = useSafeAreaInsets();
-    const { orderId } = useLocalSearchParams<{ orderId: string }>();
+    const { orderId } = useLocalSearchParams<{ orderId: Id<"orders"> }>();
     const { sessionToken } = useAuthStore();
 
     // Fetch order details
     const order = useQuery(
         api.orders.get, 
-        orderId && sessionToken ? { sessionToken, id: orderId as Id<"orders"> } : "skip"
+        orderId && sessionToken ? { sessionToken, id: orderId } : "skip"
     );
 
     // Animation values
@@ -40,7 +41,10 @@ export default function PaymentSuccessScreen() {
         );
         // Fade in content
         opacity.value = withDelay(300, withSpring(1));
-    }, []);
+
+        // Haptic feedback on success
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    }, [opacity, scale]);
 
     const iconStyle = useAnimatedStyle(() => ({
         transform: [{ scale: scale.value }],
@@ -102,7 +106,7 @@ export default function PaymentSuccessScreen() {
             <View style={styles.actions}>
                 <Button
                     mode="contained"
-                    onPress={() => router.push('/orders' as any)}
+                    onPress={() => router.push('/orders')}
                     style={styles.primaryButton}
                     contentStyle={styles.buttonContent}
                     icon={({ size, color }) => <LucidePackage size={size} color={color} />}
@@ -201,6 +205,6 @@ const styles = StyleSheet.create({
         borderRadius: 12,
     },
     buttonContent: {
-        paddingVertical: 8,
+        paddingVertical: 12,
     },
 });
