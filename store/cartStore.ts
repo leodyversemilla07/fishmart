@@ -1,22 +1,32 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Id } from '@/convex/_generated/dataModel';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 
 export interface CartItem {
-    id: string;
+    id: Id<"products">;
     name: string;
     price: number;
     imageUrl: string;
     quantity: number;
-    sellerId: string;
+    sellerId: Id<"users">;
     sellerName: string;
+}
+
+interface ProductForCart {
+    id: Id<"products">;
+    name: string;
+    price: string | number;
+    images?: { imageUrl: string }[];
+    sellerId: Id<"users">;
+    seller?: { shopName?: string } | null;
 }
 
 interface CartState {
     items: CartItem[];
-    addItem: (product: any, quantity?: number) => void;
-    removeItem: (productId: string) => void;
-    updateQuantity: (productId: string, quantity: number) => void;
+    addItem: (product: ProductForCart, quantity?: number) => void;
+    removeItem: (productId: Id<"products">) => void;
+    updateQuantity: (productId: Id<"products">, quantity: number) => void;
     clearCart: () => void;
     totalItems: () => number;
     totalPrice: () => number;

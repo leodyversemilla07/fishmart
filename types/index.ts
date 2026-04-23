@@ -65,12 +65,12 @@ export interface Product {
     status: "ACTIVE" | "INACTIVE" | "OUT_OF_STOCK";
     views: number;
     sales: number;
-    images?: Array<{ imageUrl: string }>; // Joined field
-    rating?: number; // Calculated/joined field
+    images?: { imageUrl: string }[]; // Joined field
+    rating?: number | null; // Calculated/joined field
     reviewCount?: number;
-    reviews?: Array<Review>; // Joined field
+    reviews?: Review[]; // Joined field
     seller?: User | null; // Joined field
-    category?: Category | null; // Joined field
+    category?: Pick<Category, "_id" | "name" | "slug"> | Category | null; // Joined field
     sellerAverageRating?: number | null;
     sellerReviewCount?: number;
 }
@@ -107,7 +107,7 @@ export interface Notification {
     type: string;
     title: string;
     message: string;
-    data?: any;
+    data?: Record<string, unknown>;
     isRead: boolean;
     readAt?: number;
 }
