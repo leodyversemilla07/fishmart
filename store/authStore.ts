@@ -1,5 +1,5 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Id } from '@/convex/_generated/dataModel';
+import { secureAuthStorage } from '@/store/secureStorage';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 
@@ -75,7 +75,7 @@ export const useAuthStore = create<AuthState>()(
         }),
         {
             name: 'auth-storage',
-            storage: createJSONStorage(() => AsyncStorage),
+            storage: createJSONStorage(() => secureAuthStorage),
             partialize: (state) => ({ user: state.user, convexUser: state.convexUser, sessionToken: state.sessionToken, isAuthenticated: state.isAuthenticated }),
         }
     )
