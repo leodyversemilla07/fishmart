@@ -113,6 +113,43 @@ export const updateProfile = mutation({
     },
 });
 
+export const becomeSeller = mutation({
+    args: {
+        sessionToken: v.string(),
+        shopName: v.string(),
+        shopDescription: v.optional(v.string()),
+    },
+    handler: async (ctx, args) => {
+        const user = await requireSessionUser(ctx, args.sessionToken);
+        const shopName = args.shopName.trim();
+        const shopDescription = args.shopDescription?.trim();
+
+        if (!shopName) {
+            throw new Error("Shop name is required");
+        }
+        if (user.role === "ADMIN" || user.role === "SELLER") {
+            await ctx.db.patch(user._id, {
+                shopName,
+                shopDescription,
+            });
+        } else {
+            await ctx.db.patch(user._id, {
+                role: "SELLER",
+                shopName,
+                shopDescription,
+            });
+        }
+
+        const updatedUser = await ctx.db.get(user._id);
+        if (!updatedUser) {
+            throw new Error("User not found");
+        }
+
+        const { password, passwordSalt, ...safeUser } = updatedUser;
+        return safeUser;
+    },
+});
+
 export const listAddresses = query({
     args: { sessionToken: v.string() },
     handler: async (ctx, args) => {

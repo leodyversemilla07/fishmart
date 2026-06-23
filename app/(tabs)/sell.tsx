@@ -6,7 +6,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { Alert, ScrollView, StyleSheet, View } from 'react-native';
-import { Button, HelperText, Text, TextInput } from 'react-native-paper';
+import { Button, Card, HelperText, Text, TextInput, useTheme } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
@@ -23,10 +23,12 @@ interface PSGCLocation {
 
 export default function SellScreen() {
     const insets = useSafeAreaInsets();
-    const { isAuthenticated, sessionToken } = useAuthStore();
+    const theme = useTheme();
+    const { isAuthenticated, sessionToken, user, updateUser } = useAuthStore();
 
     const categories = useQuery(api.categories.list) || [];
     const createProduct = useMutation(api.products.create);
+    const becomeSeller = useMutation(api.users.becomeSeller);
 
     // Form state
     const [name, setName] = useState('');
@@ -37,6 +39,9 @@ export default function SellScreen() {
     const [images, setImages] = useState<ImagePicker.ImagePickerAsset[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [shopName, setShopName] = useState(user?.shopName || '');
+    const [shopDescription, setShopDescription] = useState(user?.shopDescription || '');
+    const [sellerOnboardingLoading, setSellerOnboardingLoading] = useState(false);
 
     // Location state
     const [selectedProvince, setSelectedProvince] = useState<PSGCLocation | null>(null);
@@ -91,6 +96,39 @@ export default function SellScreen() {
             return false;
         }
         return true;
+    };
+
+    const handleBecomeSeller = async () => {
+        if (!sessionToken) {
+            Alert.alert('Login Required', 'Please login to start selling', [
+                { text: 'Login', onPress: () => router.push('/(auth)/login') },
+                { text: 'Cancel', style: 'cancel' },
+            ]);
+            return;
+        }
+
+        if (!shopName.trim()) {
+            setError('Please enter a shop name');
+            return;
+        }
+
+        setSellerOnboardingLoading(true);
+        setError(null);
+
+        try {
+            const upgradedUser = await becomeSeller({
+                sessionToken,
+                shopName: shopName.trim(),
+                shopDescription: shopDescription.trim() || undefined,
+            });
+            updateUser(upgradedUser);
+            Alert.alert('Seller account ready', 'You can now list products on Fishmart.');
+        } catch (err) {
+            const message = err instanceof Error ? err.message : 'Failed to set up seller account';
+            setError(message);
+        } finally {
+            setSellerOnboardingLoading(false);
+        }
     };
 
     const handleSubmit = async () => {
@@ -151,6 +189,98 @@ export default function SellScreen() {
             setLoading(false);
         }
     };
+
+    if (!isAuthenticated) {
+        return (
+            <View style={[styles.container, { paddingTop: insets.top }]}> 
+                <View style={styles.centeredContent}>
+                    <Card style={styles.promptCard}>
+                        <Card.Content>
+                            <Text variant="headlineSmall" style={styles.promptTitle}>Start selling on Fishmart</Text>
+                            <Text variant="bodyMedium" style={styles.promptText}>
+                                Sign in to create listings, manage orders, and chat with buyers.
+                            </Text>
+                            <Button
+                                mode="contained"
+                                onPress={() => router.push('/(auth)/login')}
+                                style={styles.promptButton}
+                                contentStyle={styles.submitButtonContent}
+                            >
+                                Sign In
+                            </Button>
+                        </Card.Content>
+                    </Card>
+                </View>
+            </View>
+        );
+    }
+
+    if (user?.role === 'BUYER') {
+        return (
+            <View style={[styles.container, { paddingTop: insets.top }]}> 
+                <ScrollView
+                    style={styles.scrollView}
+                    contentContainerStyle={styles.scrollContent}
+                    showsVerticalScrollIndicator={false}
+                >
+                    <View style={styles.header}>
+                        <Text variant="headlineMedium" style={styles.headerTitle}>
+                            Become a Seller
+                        </Text>
+                        <Text variant="bodyMedium" style={styles.headerSubtitle}>
+                            Set up your shop before listing aquatic pets.
+                        </Text>
+                    </View>
+
+                    <Card style={styles.onboardingCard}>
+                        <Card.Content>
+                            <Text variant="titleMedium" style={styles.sectionTitle}>Shop Details</Text>
+                            <TextInput
+                                label="Shop Name"
+                                value={shopName}
+                                onChangeText={setShopName}
+                                mode="outlined"
+                                style={styles.input}
+                                placeholder="e.g. Manila Guppy House"
+                                outlineStyle={{ borderRadius: 12 }}
+                            />
+                            <TextInput
+                                label="Shop Description (Optional)"
+                                value={shopDescription}
+                                onChangeText={setShopDescription}
+                                mode="outlined"
+                                style={styles.input}
+                                placeholder="Tell buyers what you breed or sell..."
+                                multiline
+                                numberOfLines={4}
+                                outlineStyle={{ borderRadius: 12 }}
+                            />
+
+                            {error && (
+                                <HelperText type="error" visible style={styles.error}>
+                                    {error}
+                                </HelperText>
+                            )}
+
+                            <Button
+                                mode="contained"
+                                onPress={handleBecomeSeller}
+                                loading={sellerOnboardingLoading}
+                                disabled={sellerOnboardingLoading}
+                                style={styles.submitButton}
+                                contentStyle={styles.submitButtonContent}
+                            >
+                                Create Seller Account
+                            </Button>
+                            <Text variant="bodySmall" style={[styles.sellerNote, { color: theme.colors.onSurfaceVariant }]}>
+                                You can update your shop profile later from your account settings.
+                            </Text>
+                        </Card.Content>
+                    </Card>
+                </ScrollView>
+            </View>
+        );
+    }
 
     return (
         <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -282,6 +412,36 @@ const styles = StyleSheet.create({
     },
     scrollContent: {
         padding: 16,
+    },
+    centeredContent: {
+        flex: 1,
+        justifyContent: 'center',
+        padding: 20,
+    },
+    promptCard: {
+        borderRadius: 18,
+        backgroundColor: 'white',
+    },
+    promptTitle: {
+        fontWeight: 'bold',
+        color: '#1E293B',
+        marginBottom: 8,
+    },
+    promptText: {
+        color: '#64748B',
+        lineHeight: 22,
+        marginBottom: 16,
+    },
+    promptButton: {
+        borderRadius: 12,
+    },
+    onboardingCard: {
+        borderRadius: 18,
+        backgroundColor: 'white',
+    },
+    sellerNote: {
+        marginTop: 12,
+        textAlign: 'center',
     },
     header: {
         marginBottom: 24,

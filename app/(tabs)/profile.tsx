@@ -46,6 +46,7 @@ export default function ProfileScreen() {
     const fullName = profile
         ? `${profile.firstName} ${profile.middleName ? profile.middleName + ' ' : ''}${profile.lastName}`
         : `${user.firstName} ${user.middleName ? user.middleName + ' ' : ''}${user.lastName}`;
+    const canSell = user.role === 'SELLER' || user.role === 'ADMIN';
 
     return (
         <ScrollView
@@ -99,44 +100,58 @@ export default function ProfileScreen() {
                 </View>
 
                 {/* Seller Tools */}
-                <List.Section style={styles.listSection}>
-                    <List.Subheader>Seller Tools</List.Subheader>
-                    <List.Item
-                        title="Incoming Orders"
-                        description="Manage orders from buyers"
-                        left={() => <LucidePackageCheck size={24} color={theme.colors.outline} />}
-                        right={() => <List.Icon icon="chevron-right" />}
-                        onPress={() => router.push('/seller/orders')}
-                    />
-                    <Divider />
-                    <List.Item
-                        title="My Listings"
-                        description="Manage your listed items"
-                        left={() => <LucideStore size={24} color={theme.colors.outline} />}
-                        right={() => <List.Icon icon="chevron-right" />}
-                        onPress={() => router.push('/seller/listings')}
-                    />
-                    {user.role === 'ADMIN' && (
-                        <>
-                            <Divider />
-                            <List.Item
-                                title="Reservation Metrics"
-                                description="Monitor order reservation health"
-                                left={() => <LucideShieldCheck size={24} color={theme.colors.outline} />}
-                                right={() => <List.Icon icon="chevron-right" />}
-                                onPress={() => router.push('/profile/reservations')}
-                            />
-                            <Divider />
-                            <List.Item
-                                title="Admin Dashboard"
-                                description="Platform management panel"
-                                left={() => <LucideShieldCheck size={24} color={theme.colors.primary} />}
-                                right={() => <List.Icon icon="chevron-right" />}
-                                onPress={() => { router.push('/admin' as any); }}
-                            />
-                        </>
-                    )}
-                </List.Section>
+                {canSell ? (
+                    <List.Section style={styles.listSection}>
+                        <List.Subheader>Seller Tools</List.Subheader>
+                        <List.Item
+                            title="Incoming Orders"
+                            description="Manage orders from buyers"
+                            left={() => <LucidePackageCheck size={24} color={theme.colors.outline} />}
+                            right={() => <List.Icon icon="chevron-right" />}
+                            onPress={() => router.push('/seller/orders')}
+                        />
+                        <Divider />
+                        <List.Item
+                            title="My Listings"
+                            description="Manage your listed items"
+                            left={() => <LucideStore size={24} color={theme.colors.outline} />}
+                            right={() => <List.Icon icon="chevron-right" />}
+                            onPress={() => router.push('/seller/listings')}
+                        />
+                        {user.role === 'ADMIN' && (
+                            <>
+                                <Divider />
+                                <List.Item
+                                    title="Reservation Metrics"
+                                    description="Monitor order reservation health"
+                                    left={() => <LucideShieldCheck size={24} color={theme.colors.outline} />}
+                                    right={() => <List.Icon icon="chevron-right" />}
+                                    onPress={() => router.push('/profile/reservations')}
+                                />
+                                <Divider />
+                                <List.Item
+                                    title="Admin Dashboard"
+                                    description="Platform management panel"
+                                    left={() => <LucideShieldCheck size={24} color={theme.colors.primary} />}
+                                    right={() => <List.Icon icon="chevron-right" />}
+                                    onPress={() => { router.push('/admin' as any); }}
+                                />
+                            </>
+                        )}
+                    </List.Section>
+                ) : (
+                    <Card style={styles.becomeSellerCard}>
+                        <Card.Content>
+                            <Text variant="titleMedium" style={styles.becomeSellerTitle}>Want to sell fish?</Text>
+                            <Text variant="bodyMedium" style={styles.becomeSellerText}>
+                                Create a seller profile to list products and manage buyer orders.
+                            </Text>
+                            <Button mode="contained" onPress={() => router.push('/(tabs)/sell')} style={styles.becomeSellerButton}>
+                                Become a Seller
+                            </Button>
+                        </Card.Content>
+                    </Card>
+                )}
 
                 <List.Section style={styles.listSection}>
                     <List.Subheader>Account Settings</List.Subheader>
@@ -258,6 +273,25 @@ const styles = StyleSheet.create({
         overflow: 'hidden',
         marginBottom: 16,
         elevation: 1,
+    },
+    becomeSellerCard: {
+        backgroundColor: 'white',
+        borderRadius: 15,
+        marginBottom: 16,
+        elevation: 1,
+    },
+    becomeSellerTitle: {
+        fontWeight: 'bold',
+        color: '#1E293B',
+        marginBottom: 6,
+    },
+    becomeSellerText: {
+        color: '#64748B',
+        marginBottom: 14,
+        lineHeight: 22,
+    },
+    becomeSellerButton: {
+        borderRadius: 12,
     },
     signOutButton: {
         marginTop: 8,
