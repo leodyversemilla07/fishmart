@@ -1,9 +1,14 @@
+import { api } from '@/convex/_generated/api';
+import { convex } from '@/lib/convex';
+import { useAuthStore } from '@/store/authStore';
+import Constants from 'expo-constants';
 import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
-import { Platform } from 'react-native';
+import { router } from 'expo-router';
 import { useEffect, useRef } from 'react';
+import { Platform } from 'react-native';
 
-// Configure how notifications are shown when the app is in the foreground
+// Configure how notifications are shown when the app is in the foreground.
 Notifications.setNotificationHandler({
     handleNotification: async () => ({
         shouldShowAlert: true,
@@ -14,37 +19,104 @@ Notifications.setNotificationHandler({
     }),
 });
 
+type RegisteredPushToken = {
+    sessionToken: string;
+    token: string;
+};
+
+type FishmartNotificationData = {
+    orderId?: string;
+    productId?: string;
+    screen?: 'orders' | 'messages' | 'notifications';
+};
+
+function getEasProjectId() {
+    return (
+        Constants.easConfig?.projectId ||
+        Constants.expoConfig?.extra?.eas?.projectId ||
+        process.env.EXPO_PUBLIC_EAS_PROJECT_ID
+    );
+}
+
+async function ensureAndroidNotificationChannel() {
+    if (Platform.OS !== 'android') return;
+
+    await Notifications.setNotificationChannelAsync('fishmart-default', {
+        name: 'Fishmart Notifications',
+        importance: Notifications.AndroidImportance.MAX,
+        vibrationPattern: [0, 250, 250, 250],
+        lightColor: '#0A84FF',
+    });
+}
+
+function navigateFromNotification(data: FishmartNotificationData) {
+    if (data.orderId) {
+        router.push({ pathname: '/orders/[id]', params: { id: data.orderId } });
+        return;
+    }
+
+    if (data.productId) {
+        router.push({ pathname: '/product/[id]', params: { id: data.productId } });
+        return;
+    }
+
+    if (data.screen === 'messages') {
+        router.push('/(tabs)/messages');
+        return;
+    }
+
+    if (data.screen === 'orders') {
+        router.push('/orders');
+        return;
+    }
+
+    router.push('/notifications');
+}
+
 /**
- * Register the device for push notifications and sync the token to Convex.
- * Call once from the app root layout.
- * Note: Push notifications are not supported on web and will no-op.
+ * Register the current device for push notifications after auth hydration/login.
+ * Push notifications are not supported on web and no-op there.
  */
 export function usePushNotifications() {
-    // We store sessionToken in a ref so we don't trigger re-renders from the store
-    const sessionTokenRef = useRef<string | null>(null);
+    const sessionToken = useAuthStore((state) => state.sessionToken);
+    const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+    const registeredTokenRef = useRef<RegisteredPushToken | null>(null);
     const isWeb = Platform.OS === 'web';
 
     useEffect(() => {
-        // Skip push notifications on web
         if (isWeb) return;
 
-        // Dynamically read the token from the store to avoid import issues
+        const notificationSub = Notifications.addNotificationReceivedListener(() => {
+            // Convex realtime queries update the in-app notification surfaces.
+        });
+
+        const responseSub = Notifications.addNotificationResponseReceivedListener((response) => {
+            const data = response.notification.request.content.data as FishmartNotificationData;
+            navigateFromNotification(data || {});
+        });
+
+        return () => {
+            notificationSub.remove();
+            responseSub.remove();
+        };
+    }, [isWeb]);
+
+    useEffect(() => {
+        const client = convex;
+        const authToken = sessionToken;
+        if (isWeb || !isAuthenticated || !authToken || !client) return;
+        const convexClient = client;
+        const token = authToken;
+
         let isMounted = true;
 
-        async function init() {
-            // Read session token
-            const { useAuthStore } = await import('@/store/authStore');
-            const token = useAuthStore.getState().sessionToken;
-            sessionTokenRef.current = token;
-
-            if (!token) return;
-
+        async function registerDevice() {
             if (!Device.isDevice) {
-                // Simulator/emulator - skip registration (notifications require physical device)
                 return;
             }
 
-            // Request permissions
+            await ensureAndroidNotificationChannel();
+
             const { status: existingStatus } = await Notifications.getPermissionsAsync();
             let finalStatus = existingStatus;
 
@@ -54,58 +126,50 @@ export function usePushNotifications() {
             }
 
             if (finalStatus !== 'granted') {
-                // Permission denied - notifications won't work
                 return;
             }
 
-            // Android notification channel
-            if (Platform.OS === 'android') {
-                Notifications.setNotificationChannelAsync('fishmart-default', {
-                    name: 'Fishmart Notifications',
-                    importance: Notifications.AndroidImportance.MAX,
-                    vibrationPattern: [0, 250, 250, 250],
-                    lightColor: '#0A84FF',
-                });
+            const projectId = getEasProjectId();
+            if (!projectId) {
+                if (process.env.NODE_ENV === 'development') {
+                    console.warn('[Push] Missing EAS project ID. Push token registration skipped.');
+                }
+                return;
             }
 
-            // Get Expo push token
-            const tokenData = await Notifications.getExpoPushTokenAsync({
-                projectId: process.env.EXPO_PUBLIC_EAS_PROJECT_ID,
-            });
-
+            const tokenData = await Notifications.getExpoPushTokenAsync({ projectId });
             if (!isMounted) return;
 
-            // Register with Convex via the HTTP client directly
-            try {
-                const { convex } = await import('@/lib/convex');
-                if (convex) {
-                    await (convex as any).mutation("push:registerPushToken", {
-                        sessionToken: token,
-                        token: tokenData.data,
-                        platform: Platform.OS === 'ios' ? 'ios' : 'android',
-                    });
-                }
-            } catch (e) {
-                console.error('[Push] Token registration failed:', e);
-            }
+            await convexClient.mutation(api.push.registerPushToken, {
+                sessionToken: token,
+                token: tokenData.data,
+                platform: Platform.OS === 'ios' ? 'ios' : 'android',
+            });
+
+            registeredTokenRef.current = {
+                sessionToken: token,
+                token: tokenData.data,
+            };
         }
 
-        init();
-
-        // Listen for incoming notifications
-        const notificationSub = Notifications.addNotificationReceivedListener(() => {
-            // Handle received notification
-        });
-
-        const responseSub = Notifications.addNotificationResponseReceivedListener((response) => {
-            // Handle notification tap - navigation handled elsewhere via deep linking
-            void response;
+        registerDevice().catch((error) => {
+            if (process.env.NODE_ENV === 'development') {
+                console.error('[Push] Token registration failed:', error);
+            }
         });
 
         return () => {
             isMounted = false;
-            notificationSub.remove();
-            responseSub.remove();
+
+            const registration = registeredTokenRef.current;
+            if (!registration || registration.sessionToken !== token) return;
+
+            registeredTokenRef.current = null;
+            convexClient.mutation(api.push.unregisterPushToken, registration).catch((error) => {
+                if (process.env.NODE_ENV === 'development') {
+                    console.error('[Push] Token unregister failed:', error);
+                }
+            });
         };
-    }, [isWeb]);
+    }, [isAuthenticated, isWeb, sessionToken]);
 }

@@ -1,5 +1,6 @@
 import { api } from '@/convex/_generated/api';
 import { Id } from '@/convex/_generated/dataModel';
+import type { Address } from '@/types';
 import { useAuthStore } from '@/store/authStore';
 import { useCartStore } from '@/store/cartStore';
 import { useAction, useMutation, useQuery } from 'convex/react';
@@ -45,7 +46,7 @@ export default function CheckoutScreen() {
     // Effect to select default address
     React.useEffect(() => {
         if (addresses.length > 0 && !selectedAddress) {
-            const defaultAddress = addresses.find((a) => a.isDefault) || addresses[0];
+            const defaultAddress = addresses.find((a: Address) => a.isDefault) || addresses[0];
             if (defaultAddress) {
                 setSelectedAddress(defaultAddress._id);
             }
@@ -168,7 +169,7 @@ export default function CheckoutScreen() {
                     </View>
 
                     {addresses.length > 0 ? (
-                        addresses.map((addr) => (
+                        addresses.map((addr: Address) => (
                             <TouchableOpacity
                                 key={addr._id}
                                 style={[

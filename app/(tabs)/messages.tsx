@@ -17,7 +17,7 @@ export default function MessagesScreen() {
     // Convex Query
     const conversationsQuery = useQuery(api.chat.getConversations, sessionToken ? { sessionToken } : "skip");
     const conversations = (conversationsQuery ?? []).filter(
-        (conv): conv is Conversation => Boolean(conv && typeof conv._id === 'string')
+        (conv: unknown): conv is Conversation => Boolean(conv && typeof (conv as Conversation)._id === 'string')
     );
     const loading = conversationsQuery === undefined;
     const [searchQuery, setSearchQuery] = useState('');

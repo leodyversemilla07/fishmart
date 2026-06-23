@@ -1,4 +1,5 @@
 import { api } from '@/convex/_generated/api';
+import { Id } from '@/convex/_generated/dataModel';
 import { useAuthStore } from '@/store/authStore';
 import { useMutation, useQuery } from 'convex/react';
 import { router } from 'expo-router';
@@ -122,7 +123,7 @@ export default function ReservationMetricsScreen() {
             {metrics.expiredOrderIds.length === 0 ? (
               <Text variant="bodyMedium" style={styles.muted}>No expired reservations right now.</Text>
             ) : (
-              metrics.expiredOrderIds.map((id) => (
+              metrics.expiredOrderIds.map((id: Id<"orders">) => (
                 <Text key={String(id)} style={styles.orderIdText}>{String(id)}</Text>
               ))
             )}

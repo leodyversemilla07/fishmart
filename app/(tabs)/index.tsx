@@ -1,5 +1,6 @@
 import { ProductCard } from '@/components/fish/product-card';
 import { api } from '@/convex/_generated/api';
+import type { Category, Product } from '@/types';
 import { useAuthStore } from '@/store/authStore';
 import { useCartStore } from '@/store/cartStore';
 import { useQuery } from 'convex/react';
@@ -129,7 +130,7 @@ export default function HomeScreen() {
           <ActivityIndicator style={{ marginVertical: 20 }} />
         ) : (
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.categoriesScroll}>
-            {categories.map((cat) => (
+            {categories.map((cat: Category) => (
               <TouchableOpacity
                 key={cat._id}
                 style={styles.categoryCard}
@@ -156,7 +157,7 @@ export default function HomeScreen() {
           <ActivityIndicator style={{ marginVertical: 40 }} />
         ) : (
           <View style={styles.featuredGrid}>
-            {featuredProducts.map((product) => (
+            {featuredProducts.map((product: Product) => (
               <ProductCard
                 key={product._id}
                 product={{

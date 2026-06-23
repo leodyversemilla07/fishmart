@@ -23,6 +23,7 @@ type SellerOrder = {
     address?: { phoneNumber?: string; streetAddress?: string; barangay?: string; city?: string; province?: string } | null;
     items: SellerOrderItem[];
 };
+type IncomingSellerOrder = Omit<SellerOrder, 'items'> & { items: SellerOrderItem[] };
 
 const STATUS_FLOW: Record<OrderStatus, { next: OrderStatus | null; label: string; icon: LucideIcon }> = {
     PENDING: { next: 'CONFIRMED', label: 'Confirm Order', icon: LucideCheckCircle },
@@ -44,7 +45,7 @@ export default function SellerOrdersScreen() {
     const updateOrderStatus = useMutation(api.orders.updateStatus);
 
     const loading = orders === undefined;
-    const sellerOrders: SellerOrder[] = (orders ?? []).flatMap((order) => {
+    const sellerOrders: SellerOrder[] = (orders ?? []).flatMap((order: IncomingSellerOrder | null) => {
         if (!order) return [];
         return [{
             _id: order._id,
@@ -56,7 +57,7 @@ export default function SellerOrdersScreen() {
             courier: order.courier,
             buyer: order.buyer,
             address: order.address,
-            items: order.items.map((orderItem) => ({
+            items: order.items.map((orderItem: SellerOrderItem) => ({
                 _id: orderItem._id,
                 productName: orderItem.productName,
                 quantity: orderItem.quantity,

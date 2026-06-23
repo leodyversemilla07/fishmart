@@ -63,7 +63,7 @@ export default function EditProductScreen() {
             setCategory(product.categoryId);
 
             if (product.images && product.images.length > 0) {
-                setImages(product.images.map((img) => ({
+                setImages(product.images.map((img: { _id: string; imageUrl: string }) => ({
                     id: img._id,
                     imageUrl: img.imageUrl,
                     isExisting: true,

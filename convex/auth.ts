@@ -148,6 +148,10 @@ export const signUp = action({
 export const signOut = action({
     args: { sessionToken: v.string() },
     handler: async (ctx, args) => {
+        const authResult = await ctx.runQuery(internal.auth.getSessionUser, { sessionToken: args.sessionToken });
+        if (authResult) {
+            await ctx.runMutation(internal.push.deletePushTokensForUser, { userId: authResult.user._id });
+        }
         await ctx.runMutation(internal.auth.revokeSession, { sessionToken: args.sessionToken });
         return { ok: true };
     },
