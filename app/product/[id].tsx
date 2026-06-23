@@ -43,6 +43,10 @@ export default function ProductDetailScreen() {
     // Convex Hooks
     const product = useQuery(api.products.get, id ? { id } : "skip");
     const reviewsQuery = useQuery(api.reviews.listByProduct, id ? { productId: id } : "skip");
+    const reviewEligibility = useQuery(
+        api.reviews.getEligibility,
+        id && sessionToken ? { productId: id, sessionToken } : "skip"
+    );
     const reviews = reviewsQuery ?? [];
 
     const loading = product === undefined;
@@ -372,13 +376,21 @@ export default function ProductDetailScreen() {
                         </View>
                     )}
 
-                    <Button
-                        mode="outlined"
-                        style={styles.writeReviewBtn}
-                        onPress={() => router.push(`/reviews/create?productId=${product._id}&name=${encodeURIComponent(product.name)}`)}
-                    >
-                        Write a Review
-                    </Button>
+                    {reviewEligibility?.canReview ? (
+                        <Button
+                            mode="outlined"
+                            style={styles.writeReviewBtn}
+                            onPress={() => router.push(`/reviews/create?productId=${product._id}&name=${encodeURIComponent(product.name)}`)}
+                        >
+                            Write a Review
+                        </Button>
+                    ) : (
+                        <Text variant="bodySmall" style={styles.reviewEligibilityNote}>
+                            {sessionToken
+                                ? reviewEligibility?.reason || 'Reviews are available after your delivered purchase.'
+                                : 'Log in after receiving your order to review this product.'}
+                        </Text>
+                    )}
                 </View>
 
                 {/* Spacer for bottom buttons */}
@@ -681,5 +693,10 @@ const styles = StyleSheet.create({
     writeReviewBtn: {
         marginTop: 10,
         borderRadius: 12,
+    },
+    reviewEligibilityNote: {
+        marginTop: 10,
+        color: '#64748B',
+        textAlign: 'center',
     },
 });

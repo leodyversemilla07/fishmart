@@ -1,6 +1,7 @@
 import { v } from "convex/values";
-import { Doc } from "./_generated/dataModel";
+import { Doc, Id } from "./_generated/dataModel";
 import { MutationCtx, QueryCtx, mutation, query } from "./_generated/server";
+import { hasPurchasedProductForReview } from "./lib/reviews";
 import { requireSessionUser } from "./lib/session";
 
 // Helper to resolve URL
@@ -9,6 +10,60 @@ const resolveUrl = async (ctx: QueryCtx | MutationCtx, url: string) => {
     if (url.startsWith("http")) return url;
     return await ctx.storage.getUrl(url);
 };
+
+async function hasEligiblePurchase(ctx: QueryCtx | MutationCtx, userId: Id<"users">, productId: Id<"products">) {
+    const orders = await ctx.db
+        .query("orders")
+        .withIndex("by_buyer", (q) => q.eq("buyerId", userId))
+        .collect();
+
+    const candidateOrders = orders.filter((order) => order.status === "DELIVERED");
+    const orderItems = await Promise.all(
+        candidateOrders.map(async (order) => {
+            const items = await ctx.db
+                .query("order_items")
+                .withIndex("by_order", (q) => q.eq("orderId", order._id))
+                .collect();
+            return [order._id, items] as const;
+        })
+    );
+
+    return hasPurchasedProductForReview(orders, new Map(orderItems), productId);
+}
+
+async function getReviewEligibilityReason(ctx: QueryCtx | MutationCtx, userId: Id<"users">, productId: Id<"products">) {
+    const product = await ctx.db.get(productId);
+    if (!product) {
+        return { canReview: false, reason: "Product not found" };
+    }
+    if (product.sellerId === userId) {
+        return { canReview: false, reason: "You cannot review your own product." };
+    }
+
+    const existing = await ctx.db
+        .query("reviews")
+        .withIndex("by_product_user", (q) => q.eq("productId", productId).eq("userId", userId))
+        .unique();
+
+    if (existing) {
+        return { canReview: false, reason: "You have already reviewed this product." };
+    }
+
+    const purchased = await hasEligiblePurchase(ctx, userId, productId);
+    if (!purchased) {
+        return { canReview: false, reason: "Reviews are available after this product is delivered from one of your orders." };
+    }
+
+    return { canReview: true, reason: null };
+}
+
+export const getEligibility = query({
+    args: { productId: v.id("products"), sessionToken: v.string() },
+    handler: async (ctx, args) => {
+        const user = await requireSessionUser(ctx, args.sessionToken);
+        return await getReviewEligibilityReason(ctx, user._id, args.productId);
+    },
+});
 
 export const create = mutation({
     args: {
@@ -20,17 +75,10 @@ export const create = mutation({
     },
     handler: async (ctx, args) => {
         const user = await requireSessionUser(ctx, args.sessionToken);
-        // Check if user has already reviewed this product
-        const existing = await ctx.db
-            .query("reviews")
-            .withIndex("by_product_user", (q) => q.eq("productId", args.productId).eq("userId", user._id))
-            .unique();
-
-        if (existing) {
-            throw new Error("You have already reviewed this product.");
+        const eligibility = await getReviewEligibilityReason(ctx, user._id, args.productId);
+        if (!eligibility.canReview) {
+            throw new Error(eligibility.reason || "You are not eligible to review this product.");
         }
-
-        // Ideally check if user has purchased the product here
 
         return await ctx.db.insert("reviews", {
             productId: args.productId,

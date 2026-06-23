@@ -15,6 +15,7 @@ import type * as chat from "../chat.js";
 import type * as crons from "../crons.js";
 import type * as http from "../http.js";
 import type * as lib_orders from "../lib/orders.js";
+import type * as lib_reviews from "../lib/reviews.js";
 import type * as lib_session from "../lib/session.js";
 import type * as notifications from "../notifications.js";
 import type * as orders from "../orders.js";
@@ -40,6 +41,7 @@ declare const fullApi: ApiFromModules<{
   crons: typeof crons;
   http: typeof http;
   "lib/orders": typeof lib_orders;
+  "lib/reviews": typeof lib_reviews;
   "lib/session": typeof lib_session;
   notifications: typeof notifications;
   orders: typeof orders;
