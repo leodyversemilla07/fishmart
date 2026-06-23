@@ -35,9 +35,12 @@ Create `.env.local` with at least:
 EXPO_PUBLIC_CONVEX_URL=your_convex_url
 PAYMONGO_SECRET_KEY=your_paymongo_secret_key
 PAYMONGO_WEBHOOK_SECRET=your_paymongo_webhook_secret
+RESEND_API_KEY=your_resend_api_key
+RESEND_FROM_EMAIL="Fishmart <no-reply@your-domain.com>"
+PASSWORD_RESET_URL_BASE=fishmart://forgot-password
 ```
 
-`EXPO_PUBLIC_CONVEX_URL` is required by both the app client and upload helper.
+`EXPO_PUBLIC_CONVEX_URL` is required by both the app client and upload helper. `RESEND_API_KEY` powers password-reset emails from Convex; configure `RESEND_FROM_EMAIL` with a verified Resend sender before production.
 
 ## Development
 

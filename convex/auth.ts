@@ -7,6 +7,8 @@ import { generateSessionToken, getSessionRecord, hashSessionToken, SESSION_DURAT
 const SALT_LENGTH = 16;
 const PBKDF2_ITERATIONS = 210_000;
 const PBKDF2_HASH_BITS = 256;
+const PASSWORD_RESET_TOKEN_TTL_MS = 1000 * 60 * 15;
+const DEFAULT_PASSWORD_RESET_URL_BASE = "fishmart://forgot-password";
 
 function bytesToHex(bytes: Uint8Array): string {
     return Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join("");
@@ -61,6 +63,70 @@ async function hashPasswordPbkdf2(password: string, saltHex: string, iterations 
     );
 
     return `pbkdf2$${iterations}$${bytesToHex(new Uint8Array(derivedBits))}`;
+}
+
+function escapeHtml(value: string) {
+    return value
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+}
+
+function buildPasswordResetUrl(resetToken: string) {
+    const baseUrl = process.env.PASSWORD_RESET_URL_BASE || DEFAULT_PASSWORD_RESET_URL_BASE;
+    const separator = baseUrl.includes("?") ? "&" : "?";
+    return `${baseUrl}${separator}token=${encodeURIComponent(resetToken)}`;
+}
+
+async function sendPasswordResetEmail(email: string, resetToken: string) {
+    const resendApiKey = process.env.RESEND_API_KEY;
+    if (!resendApiKey) {
+        if (process.env.NODE_ENV === "development") {
+            console.warn("RESEND_API_KEY is not configured; password reset email was not sent.");
+        }
+        return;
+    }
+
+    const from = process.env.RESEND_FROM_EMAIL || "Fishmart <onboarding@resend.dev>";
+    const resetUrl = buildPasswordResetUrl(resetToken);
+    const escapedResetUrl = escapeHtml(resetUrl);
+    const escapedToken = escapeHtml(resetToken);
+
+    const response = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+            Authorization: `Bearer ${resendApiKey}`,
+            "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+            from,
+            to: email,
+            subject: "Reset your Fishmart password",
+            text: `Reset your Fishmart password using this link: ${resetUrl}\n\nIf the link does not open, enter this reset token in the app: ${resetToken}\n\nThis link expires in 15 minutes. If you did not request this, you can ignore this email.`,
+            html: `
+                <div style="font-family: Arial, sans-serif; color: #0f172a; line-height: 1.6; max-width: 560px; margin: 0 auto;">
+                    <h1 style="color: #0061A4;">Reset your Fishmart password</h1>
+                    <p>We received a request to reset your password. Tap the button below to choose a new password.</p>
+                    <p>
+                        <a href="${escapedResetUrl}" style="display: inline-block; background: #0061A4; color: #ffffff; padding: 12px 18px; border-radius: 10px; text-decoration: none; font-weight: 700;">
+                            Reset password
+                        </a>
+                    </p>
+                    <p>If the button does not open the app, copy this reset token into Fishmart:</p>
+                    <p style="font-family: monospace; background: #f1f5f9; padding: 12px; border-radius: 8px; word-break: break-all;">${escapedToken}</p>
+                    <p>This reset link expires in 15 minutes.</p>
+                    <p style="color: #64748b; font-size: 13px;">If you did not request this, you can safely ignore this email.</p>
+                </div>
+            `,
+        }),
+    });
+
+    if (!response.ok) {
+        const responseText = await response.text();
+        throw new Error(`Resend password reset email failed: ${response.status} ${responseText}`);
+    }
 }
 
 async function verifyPassword(password: string, storedHash: string, salt: string | undefined): Promise<boolean> {
@@ -216,6 +282,20 @@ export const deletePasswordResetToken = internalMutation({
     },
 });
 
+export const deletePasswordResetTokensForUser = internalMutation({
+    args: { userId: v.id("users") },
+    handler: async (ctx, args) => {
+        const tokens = await ctx.db
+            .query("password_reset_tokens")
+            .withIndex("by_user", (q) => q.eq("userId", args.userId))
+            .collect();
+
+        for (const token of tokens) {
+            await ctx.db.delete(token._id);
+        }
+    },
+});
+
 export const revokeAllUserSessions = internalMutation({
     args: { userId: v.id("users") },
     handler: async (ctx, args) => {
@@ -262,20 +342,18 @@ export const forgotPassword = action({
         const resetToken = generateSessionToken();
         const resetHash = await hashSessionToken(resetToken);
 
-        // Store the reset token on the user record as a temporary field
-        // We store it in a new session-like record with a special marker
+        await ctx.runMutation(internal.auth.deletePasswordResetTokensForUser, { userId: user._id });
         await ctx.runMutation(internal.auth.createPasswordResetToken, {
             userId: user._id,
             tokenHash: resetHash,
-            expiresAt: Date.now() + 1000 * 60 * 15, // 15 minutes
+            expiresAt: Date.now() + PASSWORD_RESET_TOKEN_TTL_MS,
         });
 
-        // In production, send email via SMTP service.
-        // Development: token is logged server-side (check Convex dashboard logs)
-        console.debug(`[FORGOT PASSWORD] Reset token generated for ${args.email}`);
-
-        // TODO: Integrate with an email service (e.g., Resend, SendGrid)
-        // await sendPasswordResetEmail(args.email, resetToken);
+        try {
+            await sendPasswordResetEmail(user.email, resetToken);
+        } catch (error) {
+            console.error("Password reset email failed:", error);
+        }
 
         return { ok: true };
     },

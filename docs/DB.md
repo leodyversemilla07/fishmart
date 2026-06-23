@@ -279,7 +279,9 @@ export default defineSchema({
         userId: v.id("users"),
         tokenHash: v.string(),
         expiresAt: v.number(),
-    }).index("by_tokenHash", ["tokenHash"]),
+    })
+        .index("by_tokenHash", ["tokenHash"])
+        .index("by_user", ["userId"]),
 
     // Expo/FCM Device Registration Tokens
     push_tokens: defineTable({

@@ -223,7 +223,8 @@ export default defineSchema({
         tokenHash: v.string(),
         expiresAt: v.number(),
     })
-        .index("by_tokenHash", ["tokenHash"]),
+        .index("by_tokenHash", ["tokenHash"])
+        .index("by_user", ["userId"]),
 
     push_tokens: defineTable({
         userId: v.id("users"),

@@ -1,16 +1,17 @@
 import { api } from '@/convex/_generated/api';
 import { useAction } from 'convex/react';
 import { Image } from 'expo-image';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as Haptics from 'expo-haptics';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ImageBackground, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, View } from 'react-native';
 import { Button, HelperText, Text, TextInput } from 'react-native-paper';
 
 type Step = 'request' | 'sent' | 'reset' | 'success';
 
 export default function ForgotPasswordScreen() {
+    const params = useLocalSearchParams<{ token?: string }>();
     const [step, setStep] = useState<Step>('request');
     const [email, setEmail] = useState('');
     const [resetToken, setResetToken] = useState('');
@@ -21,6 +22,13 @@ export default function ForgotPasswordScreen() {
 
     const forgotPasswordAction = useAction(api.auth.forgotPassword);
     const resetPasswordAction = useAction(api.auth.resetPassword);
+
+    useEffect(() => {
+        if (params.token) {
+            setResetToken(params.token);
+            setStep('reset');
+        }
+    }, [params.token]);
 
     const handleRequestReset = async () => {
         if (!email) {
@@ -106,8 +114,8 @@ export default function ForgotPasswordScreen() {
                                 />
                                 <Text variant="headlineMedium" style={styles.title}>Reset Password</Text>
                                 <Text variant="bodyLarge" style={styles.subtitle}>
-                                    {step === 'request' && 'Enter your email to receive a reset token'}
-                                    {step === 'sent' && 'Check your email for the reset token'}
+                                    {step === 'request' && 'Enter your email to receive a reset link'}
+                                    {step === 'sent' && 'Check your email for the reset link'}
                                     {step === 'reset' && 'Enter the token and your new password'}
                                     {step === 'success' && 'Password has been reset successfully'}
                                 </Text>
@@ -138,7 +146,7 @@ export default function ForgotPasswordScreen() {
                                             style={styles.submitButton}
                                             contentStyle={styles.buttonContent}
                                         >
-                                            Send Reset Token
+                                            Send Reset Link
                                         </Button>
                                     </>
                                 )}
@@ -147,10 +155,10 @@ export default function ForgotPasswordScreen() {
                                     <>
                                         <View style={styles.successContainer}>
                                             <Text variant="bodyMedium" style={styles.successText}>
-                                                If an account with {email} exists, a reset token has been sent.
+                                                If an account with {email} exists, a password reset link has been sent.
                                             </Text>
                                             <Text variant="bodySmall" style={{ color: '#888', textAlign: 'center', marginBottom: 16 }}>
-                                                In development mode, check the console logs for the token.
+                                                Open the link from your email, or copy the reset token into the app.
                                             </Text>
                                             <Button
                                                 mode="contained"
@@ -211,10 +219,10 @@ export default function ForgotPasswordScreen() {
 
                                         <Button
                                             mode="text"
-                                            onPress={() => setStep('sent')}
+                                            onPress={() => setStep('request')}
                                             style={{ marginTop: 8 }}
                                         >
-                                            Didn&apos;t receive a token? Resend
+                                            Didn&apos;t receive an email? Request a new link
                                         </Button>
                                     </>
                                 )}
