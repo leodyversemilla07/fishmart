@@ -60,3 +60,9 @@ export function assertSeller(user: Doc<"users">) {
         throw new Error("Seller access required");
     }
 }
+
+export function assertAdmin(user: Doc<"users">) {
+    if (user.role !== "ADMIN") {
+        throw new Error("Admin access required");
+    }
+}

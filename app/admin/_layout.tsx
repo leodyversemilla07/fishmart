@@ -42,6 +42,7 @@ export default function AdminLayout() {
                     ),
                 }}
             />
+            <Stack.Screen name="orders" options={{ title: 'All Orders' }} />
         </Stack>
     );
 }
