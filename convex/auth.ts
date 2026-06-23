@@ -178,6 +178,56 @@ export const revokeSession = internalMutation({
     },
 });
 
+export const createPasswordResetToken = internalMutation({
+    args: {
+        userId: v.id("users"),
+        tokenHash: v.string(),
+        expiresAt: v.number(),
+    },
+    handler: async (ctx, args) => {
+        return await ctx.db.insert("password_reset_tokens", args);
+    },
+});
+
+export const getPasswordResetToken = internalQuery({
+    args: { tokenHash: v.string() },
+    handler: async (ctx, args) => {
+        return await ctx.db
+            .query("password_reset_tokens")
+            .withIndex("by_tokenHash", (q) => q.eq("tokenHash", args.tokenHash))
+            .unique();
+    },
+});
+
+export const deletePasswordResetToken = internalMutation({
+    args: { tokenHash: v.string() },
+    handler: async (ctx, args) => {
+        const token = await ctx.db
+            .query("password_reset_tokens")
+            .withIndex("by_tokenHash", (q) => q.eq("tokenHash", args.tokenHash))
+            .unique();
+        if (token) {
+            await ctx.db.delete(token._id);
+        }
+    },
+});
+
+export const revokeAllUserSessions = internalMutation({
+    args: { userId: v.id("users") },
+    handler: async (ctx, args) => {
+        const sessions = await ctx.db
+            .query("sessions")
+            .withIndex("by_user", (q) => q.eq("userId", args.userId))
+            .collect();
+        const now = Date.now();
+        for (const session of sessions) {
+            if (!session.revokedAt) {
+                await ctx.db.patch(session._id, { revokedAt: now });
+            }
+        }
+    },
+});
+
 export const getSessionUser = internalQuery({
     args: { sessionToken: v.string() },
     handler: async (ctx, args) => {
@@ -192,6 +242,76 @@ export const getSessionUser = internalQuery({
         }
 
         return { session, user };
+    },
+});
+
+export const forgotPassword = action({
+    args: { email: v.string() },
+    handler: async (ctx, args): Promise<{ error: string } | { ok: true }> => {
+        const user = await ctx.runQuery(internal.users.getUserByEmail, { email: args.email });
+        if (!user) {
+            // Don't reveal whether the email exists
+            return { ok: true };
+        }
+
+        // Generate a password-reset token (short-lived, 15 minutes)
+        const resetToken = generateSessionToken();
+        const resetHash = await hashSessionToken(resetToken);
+
+        // Store the reset token on the user record as a temporary field
+        // We store it in a new session-like record with a special marker
+        await ctx.runMutation(internal.auth.createPasswordResetToken, {
+            userId: user._id,
+            tokenHash: resetHash,
+            expiresAt: Date.now() + 1000 * 60 * 15, // 15 minutes
+        });
+
+        // In production, send email via SMTP service.
+        // Development: token is logged server-side (check Convex dashboard logs)
+        console.debug(`[FORGOT PASSWORD] Reset token generated for ${args.email}`);
+
+        // TODO: Integrate with an email service (e.g., Resend, SendGrid)
+        // await sendPasswordResetEmail(args.email, resetToken);
+
+        return { ok: true };
+    },
+});
+
+export const resetPassword = action({
+    args: {
+        token: v.string(),
+        newPassword: v.string(),
+    },
+    handler: async (ctx, args): Promise<{ error: string } | { ok: true }> => {
+        const tokenHash = await hashSessionToken(args.token);
+        const resetRecord = await ctx.runQuery(internal.auth.getPasswordResetToken, { tokenHash });
+
+        if (!resetRecord) {
+            return { error: "Invalid or expired reset token" };
+        }
+
+        if (resetRecord.expiresAt <= Date.now()) {
+            await ctx.runMutation(internal.auth.deletePasswordResetToken, { tokenHash });
+            return { error: "Reset token has expired. Please request a new one." };
+        }
+
+        // Hash the new password
+        const salt = generateSalt();
+        const hashedPassword = await hashPasswordPbkdf2(args.newPassword, salt);
+
+        await ctx.runMutation(internal.users.updatePassword, {
+            userId: resetRecord.userId,
+            password: hashedPassword,
+            passwordSalt: salt,
+        });
+
+        // Delete the reset token so it can't be reused
+        await ctx.runMutation(internal.auth.deletePasswordResetToken, { tokenHash });
+
+        // Revoke all existing sessions for this user (force re-login)
+        await ctx.runMutation(internal.auth.revokeAllUserSessions, { userId: resetRecord.userId });
+
+        return { ok: true };
     },
 });
 

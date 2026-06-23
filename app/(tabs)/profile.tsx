@@ -126,6 +126,14 @@ export default function ProfileScreen() {
                                 right={() => <List.Icon icon="chevron-right" />}
                                 onPress={() => router.push('/profile/reservations')}
                             />
+                            <Divider />
+                            <List.Item
+                                title="Admin Dashboard"
+                                description="Platform management panel"
+                                left={() => <LucideShieldCheck size={24} color={theme.colors.primary} />}
+                                right={() => <List.Icon icon="chevron-right" />}
+                                onPress={() => { router.push('/admin' as any); }}
+                            />
                         </>
                     )}
                 </List.Section>

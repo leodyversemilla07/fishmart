@@ -1,11 +1,12 @@
 import { api } from '@/convex/_generated/api';
 import { Id } from '@/convex/_generated/dataModel';
 import { useMutation, useQuery } from 'convex/react';
+import { Image } from 'expo-image';
 import { router, useLocalSearchParams } from 'expo-router';
-import { LucideArrowLeft, LucideCalendar, LucideMessageCircle, LucideStar, LucideVerified } from 'lucide-react-native';
+import { LucideArrowLeft, LucideCalendar, LucideMessageCircle, LucideShoppingBag, LucideStar, LucideVerified } from 'lucide-react-native';
 import React from 'react';
 import { ActivityIndicator, Alert, FlatList, RefreshControl, StyleSheet, TouchableOpacity, View } from 'react-native';
-import { Avatar, Button, Card, Divider, Text, useTheme } from 'react-native-paper';
+import { Avatar, Button, Card, Divider, Text, Chip, useTheme } from 'react-native-paper';
 import { useAuthStore } from '@/store/authStore';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -85,7 +86,7 @@ export default function SellerProfileScreen() {
 
             <View style={styles.statsRow}>
                 <View style={styles.statItem}>
-                    <Text variant="titleLarge" style={styles.statValue}>{seller.averageRating.toFixed(1)}</Text>
+                    <Text variant="titleLarge" style={styles.statValue}>{seller.averageRating ? seller.averageRating.toFixed(1) : '—'}</Text>
                     <View style={styles.ratingStars}>
                         <LucideStar size={12} color="#FFB800" fill="#FFB800" />
                         <Text variant="labelSmall" style={styles.statLabel}>Rating</Text>
@@ -131,18 +132,34 @@ export default function SellerProfileScreen() {
         </View>
     );
 
-    const renderProductItem = ({ item }: { item: (typeof seller.products)[number] }) => (
-        <Card
-            style={styles.productCard}
-            onPress={() => router.push(`/product/${item._id}`)}
-        >
-            <Card.Cover source={{ uri: item.images?.[0]?.imageUrl || 'https://picsum.photos/seed/fish/400/300' }} />
-            <Card.Content style={styles.productContent}>
-                <Text variant="titleSmall" numberOfLines={1}>{item.name}</Text>
-                <Text variant="titleMedium" style={styles.price}>₱{item.price.toLocaleString()}</Text>
-            </Card.Content>
-        </Card>
-    );
+    const renderProductItem = ({ item }: { item: (typeof seller.products)[number] }) => {
+        const coverImage = item.images?.[0]?.imageUrl;
+        return (
+            <Card
+                style={styles.productCard}
+                onPress={() => router.push(`/product/${item._id}`)}
+            >
+                <View style={styles.productImageWrapper}>
+                    {coverImage ? (
+                        <Image source={{ uri: coverImage }} style={styles.productImage} contentFit="cover" transition={200} />
+                    ) : (
+                        <View style={[styles.productImagePlaceholder, { backgroundColor: theme.colors.primaryContainer }]}>
+                            <LucideShoppingBag size={28} color={theme.colors.primary} />
+                        </View>
+                    )}
+                    <View style={styles.productStockBadge}>
+                        <Chip compact style={[styles.stockChip, { backgroundColor: item.stock > 0 ? '#DCFCE7' : '#FEF2F2' }]} textStyle={{ fontSize: 9, color: item.stock > 0 ? '#059669' : '#DC2626' }}>
+                            {item.stock > 0 ? `${item.stock} left` : 'Out of stock'}
+                        </Chip>
+                    </View>
+                </View>
+                <Card.Content style={styles.productContent}>
+                    <Text variant="titleSmall" numberOfLines={2} style={styles.productName}>{item.name}</Text>
+                    <Text variant="titleMedium" style={styles.price}>₱{item.price.toLocaleString()}</Text>
+                </Card.Content>
+            </Card>
+        );
+    };
 
     const renderReviewItem = (review: (typeof seller.recentReviews)[number]) => (
         <View key={review._id} style={styles.reviewItem}>
@@ -172,25 +189,35 @@ export default function SellerProfileScreen() {
                 data={seller.products}
                 keyExtractor={item => item._id}
                 renderItem={renderProductItem}
-                numColumns={2}
+                numColumns={seller.products.length > 0 ? 2 : 1}
                 ListHeaderComponent={renderHeader}
-                columnWrapperStyle={styles.productRow}
+                columnWrapperStyle={seller.products.length > 0 ? styles.productRow : undefined}
                 contentContainerStyle={styles.listContent}
                 refreshControl={
                     <RefreshControl refreshing={false} onRefresh={() => { }} />
+                }
+                ListEmptyComponent={
+                    <View style={styles.emptySection}>
+                        <LucideShoppingBag size={48} color="#CBD5E1" />
+                        <Text variant="bodyMedium" style={{ color: '#64748B', marginTop: 12 }}>
+                            No products listed yet
+                        </Text>
+                    </View>
                 }
                 ListFooterComponent={() => (
                     <View style={styles.footer}>
                         <Divider style={styles.sectionDivider} />
                         <View style={styles.reviewsSectionHeader}>
                             <Text variant="titleMedium" style={styles.sectionTitle}>Recent Reviews</Text>
-                            <Button
-                                mode="text"
-                                compact
-                                onPress={() => sellerId && router.push(`/reviews/seller/${sellerId}`)}
-                            >
-                                See All
-                            </Button>
+                            {seller.recentReviews?.length > 0 && (
+                                <Button
+                                    mode="text"
+                                    compact
+                                    onPress={() => sellerId && router.push(`/reviews/seller/${sellerId}`)}
+                                >
+                                    See All
+                                </Button>
+                            )}
                         </View>
                         {seller.recentReviews?.length > 0 ? (
                             seller.recentReviews.map(renderReviewItem)
@@ -341,6 +368,34 @@ const styles = StyleSheet.create({
         borderColor: '#F1F5F9',
         elevation: 0,
     },
+    productImageWrapper: {
+        position: 'relative',
+        width: '100%',
+        height: 120,
+    },
+    productImage: {
+        width: '100%',
+        height: 120,
+    },
+    productImagePlaceholder: {
+        width: '100%',
+        height: 120,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    productStockBadge: {
+        position: 'absolute',
+        top: 8,
+        left: 8,
+    },
+    stockChip: {
+        height: 20,
+    },
+    productName: {
+        fontWeight: '600',
+        color: '#1E293B',
+        minHeight: 40,
+    },
     productContent: {
         padding: 10,
     },
@@ -382,6 +437,11 @@ const styles = StyleSheet.create({
         color: '#94A3B8',
         marginTop: 4,
         fontStyle: 'italic',
+    },
+    emptySection: {
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingVertical: 40,
     },
     emptyReviews: {
         textAlign: 'center',

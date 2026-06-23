@@ -95,7 +95,7 @@ http.route({
                 }
 
                 default:
-                    console.log("Unhandled webhook event:", eventType);
+                    console.error("[Webhook] Unhandled PayMongo event:", eventType);
             }
 
             return new Response(JSON.stringify({ received: true }), {

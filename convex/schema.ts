@@ -73,6 +73,7 @@ export default defineSchema({
         status: v.union(v.literal("ACTIVE"), v.literal("INACTIVE"), v.literal("OUT_OF_STOCK")),
         views: v.number(),
         sales: v.number(),
+        searchTerms: v.optional(v.array(v.string())),
     })
         .index("by_seller", ["sellerId"])
         .index("by_category", ["categoryId"])
@@ -216,4 +217,19 @@ export default defineSchema({
         isRead: v.boolean(),
     })
         .index("by_conversation", ["conversationId"]),
+
+    password_reset_tokens: defineTable({
+        userId: v.id("users"),
+        tokenHash: v.string(),
+        expiresAt: v.number(),
+    })
+        .index("by_tokenHash", ["tokenHash"]),
+
+    push_tokens: defineTable({
+        userId: v.id("users"),
+        token: v.string(),
+        platform: v.union(v.literal("ios"), v.literal("android")),
+    })
+        .index("by_user", ["userId"])
+        .index("by_token", ["token"]),
 });

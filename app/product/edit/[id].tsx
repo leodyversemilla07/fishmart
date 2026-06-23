@@ -43,7 +43,8 @@ export default function EditProductScreen() {
     const [price, setPrice] = useState('');
     const [stock, setStock] = useState('1');
     const [category, setCategory] = useState<Id<"categories"> | ''>('');
-    const [location, setLocation] = useState('');
+    const [city, setCity] = useState('');
+    const [province, setProvince] = useState('');
 
     const [images, setImages] = useState<ProductImage[]>([]);
 
@@ -57,7 +58,8 @@ export default function EditProductScreen() {
             setDescription(product.description || '');
             setPrice(product.price?.toString() || '');
             setStock(product.stock?.toString() || '1');
-            setLocation(product.city || '');
+            setCity(product.city || '');
+            setProvince(product.province || '');
             setCategory(product.categoryId);
 
             if (product.images && product.images.length > 0) {
@@ -93,7 +95,7 @@ export default function EditProductScreen() {
     };
 
     const handleSubmit = async () => {
-        if (!name.trim() || !description.trim() || !price || !category || !location.trim()) {
+        if (!name.trim() || !description.trim() || !price || !category || !city.trim() || !province.trim()) {
             setError('Please fill in all required fields');
             return;
         }
@@ -126,8 +128,8 @@ export default function EditProductScreen() {
                 price: parseFloat(price),
                 stock: parseInt(stock) || 1,
                 categoryId: category,
-                city: location.trim(),
-                province: location.trim(),
+                city: city.trim(),
+                province: province.trim(),
                 images: finalImageUrls,
             });
 
@@ -209,7 +211,10 @@ export default function EditProductScreen() {
 
                 <View style={styles.section}>
                     <Text variant="titleMedium" style={styles.sectionTitle}>Location</Text>
-                    <TextInput label="City / Municipality" value={location} onChangeText={setLocation} mode="outlined" style={styles.input} outlineStyle={{ borderRadius: 12 }} />
+                    <View style={styles.row}>
+                        <TextInput label="City / Municipality" value={city} onChangeText={setCity} mode="outlined" style={[styles.input, styles.halfInput]} outlineStyle={{ borderRadius: 12 }} />
+                        <TextInput label="Province" value={province} onChangeText={setProvince} mode="outlined" style={[styles.input, styles.halfInput]} outlineStyle={{ borderRadius: 12 }} />
+                    </View>
                 </View>
 
                 {error && <HelperText type="error" visible={true} style={styles.error}>{error}</HelperText>}

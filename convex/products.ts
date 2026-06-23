@@ -53,14 +53,25 @@ export const list = query({
             products = products.filter((p) => p.status === args.status);
         }
 
-        // Text search (case-insensitive) - still in-memory but on smaller dataset
+        // Text search using searchTerms index for better performance
         if (args.search) {
-            const search = args.search.toLowerCase();
-            products = products.filter(
-                (p) =>
-                    p.name.toLowerCase().includes(search) ||
-                    p.description.toLowerCase().includes(search)
-            );
+            const search = args.search.toLowerCase().trim();
+            const searchWords = search.split(/[^a-z0-9]+/).filter(Boolean);
+            products = products.filter((p) => {
+                if (!p.searchTerms || p.searchTerms.length === 0) {
+                    // Fallback for products without searchTerms
+                    return (
+                        p.name.toLowerCase().includes(search) ||
+                        p.description.toLowerCase().includes(search) ||
+                        (p.species && p.species.toLowerCase().includes(search)) ||
+                        (p.strain && p.strain.toLowerCase().includes(search))
+                    );
+                }
+                // Match all search words against stored terms
+                return searchWords.every((word) =>
+                    p.searchTerms!.some((term) => term.includes(word))
+                );
+            });
         }
 
         const uniqueCategoryIds = [...new Set(products.map((p) => p.categoryId))];
@@ -192,6 +203,13 @@ export const create = mutation({
 
         const { images, sessionToken, ...productData } = args;
 
+        // Build search terms for better discoverability
+        const searchTerms = [
+            args.name.toLowerCase(),
+            ...args.name.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean),
+            ...(args.description.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean)),
+        ];
+
         const productId = await ctx.db.insert("products", {
             ...productData,
             sellerId: seller._id,
@@ -200,6 +218,7 @@ export const create = mutation({
             views: 0,
             sales: 0,
             minOrder: 1,
+            searchTerms: [...new Set(searchTerms)],
         });
 
         for (const imageUrl of images) {
@@ -268,6 +287,18 @@ export const update = mutation({
 
         const { id, images, sessionToken, ...updates } = args;
 
+        // Rebuild search terms if name or description changed
+        if (updates.name || updates.description) {
+            const name = updates.name || product.name;
+            const description = updates.description || product.description;
+            const searchTerms = [
+                name.toLowerCase(),
+                ...name.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean),
+                ...description.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean),
+            ];
+            (updates as any).searchTerms = [...new Set(searchTerms)];
+        }
+
         if (Object.keys(updates).length > 0) {
             await ctx.db.patch(id, updates);
         }
@@ -294,5 +325,26 @@ export const update = mutation({
         }
 
         return await ctx.db.get(id);
+    },
+});
+
+export const toggleStatus = mutation({
+    args: {
+        sessionToken: v.string(),
+        id: v.id("products"),
+    },
+    handler: async (ctx, args) => {
+        const seller = await requireSessionUser(ctx, args.sessionToken);
+        const product = await ctx.db.get(args.id);
+        if (!product) {
+            throw new Error("Product not found");
+        }
+        if (product.sellerId !== seller._id && seller.role !== "ADMIN") {
+            throw new Error("Forbidden");
+        }
+
+        const newStatus = product.status === "ACTIVE" ? "INACTIVE" : "ACTIVE";
+        await ctx.db.patch(args.id, { status: newStatus });
+        return { status: newStatus };
     },
 });

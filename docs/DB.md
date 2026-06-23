@@ -1,581 +1,448 @@
-# Fishmart - Database Schema
+# FishMart - Database Documentation & Architecture
 
-## Entity Relationship Diagram
+This document outlines the active database schema, entity relationships, indexes, query optimizations, data seeding, and schema migration strategies in **FishMart**, utilizing **Convex Document Store**.
+
+---
+
+## 1. Entity Relationship Design
+
+Convex is a document database. Relationships are modeled using unique document references (`v.id("tableName")`) rather than foreign key constraints. The following diagram illustrates the document references and active logical relationships:
 
 ```
-┌─────────────┐         ┌──────────────┐         ┌─────────────┐
-│    users    │────────<│   products   │>────────│ categories  │
-└─────────────┘         └──────────────┘         └─────────────┘
-      │                        │
-      │                        │
-      ▼                        ▼
-┌─────────────┐         ┌──────────────┐
-│  addresses  │         │product_images│
-└─────────────┘         └──────────────┘
-      │
-      │
-      ▼
-┌─────────────┐         ┌──────────────┐
-│   orders    │────────<│ order_items  │
-└─────────────┘         └──────────────┘
-      │
-      │
-      ▼
-┌─────────────┐
-│  payments   │
-└─────────────┘
-      
-┌─────────────┐
-│   reviews   │
-└─────────────┘
+                  ┌───────────────┐
+                  │  categories   │
+                  └───────────────┘
+                          ▲
+                          │ (categoryId)
+                          │
+  ┌───────────┐     ┌───────────────┐     ┌────────────────┐
+  │   users   │◄────│   products    │◄────│ product_images │
+  └───────────┘     └───────────────┘     └────────────────┘
+    ▲   ▲  ▲          ▲          ▲
+    │   │  │          │          │
+    │   │  │ (buyerId)│          │ (productId)
+    │   │  └──────────┼──────┐   │
+    │   │ (sellerId)  │      │   │
+    │   └───────────┐ │      │   │
+    │ (userId)      │ │      │   │
+  ┌───────────┐   ┌─┴─┴──────┴───┴┐
+  │ addresses │◄──│    orders     │
+  └───────────┘   └──────┬────────┘
+    ▲                    │ (orderId)
+    │ (addressId)        ▼
+    └─────────────────┌───────────┐
+                      │ payments  │
+                      └───────────┘
 ```
 
-## Prisma Schema
+### Table Relationships Overview:
+1.  **`users` ◄── `products`**: A seller (`users` with role `"SELLER"` or `"ADMIN"`) can publish multiple marketplace products.
+2.  **`categories` ◄── `products`**: Each product belongs to a single category (e.g., "Guppies", "Betta Fish").
+3.  **`products` ◄── `product_images`**: A product can have multiple product images ordered via `sortOrder`.
+4.  **`users` ◄── `addresses`**: A buyer or seller can save multiple shipping/billing addresses, with a flag `isDefault` to determine checkout defaults.
+5.  **`users` ◄── `orders`**: A buyer places an order.
+6.  **`addresses` ◄── `orders`**: An order references a single static shipping address document.
+7.  **`orders` ◄── `order_items`**: An order has multiple items. To ensure long-term integrity, `order_items` contains denormalized snapshots of product fields (`productName`, `productImage`, `price`) in case the original listing is updated or deleted.
+8.  **`orders` ◄── `payments`**: An online payment order has a single associated payment session records.
+9.  **`products` & `users` ◄── `reviews`**: A buyer can submit a review with rating and photos for products they purchased.
+10. **`users` ◄── `push_tokens` / `sessions`**: Supports notification dispatching and session authorization lifecycles.
+11. **`conversations` ◄── `chat_messages`**: Real-time message logs in buyer-seller threads.
 
-```prisma
-// prisma/schema.prisma
+---
 
-generator client {
-  provider = "prisma-client-js"
-}
+## 2. Convex Active Database Schema (`convex/schema.ts`)
 
-datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
-}
+Here is the complete active Convex database schema in **TypeScript**:
 
-// Enums
-enum UserRole {
-  BUYER
-  SELLER
-  ADMIN
-}
-
-enum OrderStatus {
-  PENDING
-  CONFIRMED
-  PROCESSING
-  SHIPPED
-  DELIVERED
-  CANCELLED
-  REFUNDED
-}
-
-enum PaymentStatus {
-  PENDING
-  PROCESSING
-  PAID
-  FAILED
-  REFUNDED
-}
-
-enum PaymentMethod {
-  GCASH
-  MAYA
-  CARD
-  BANK_TRANSFER
-  COD
-}
-
-enum ProductStatus {
-  ACTIVE
-  INACTIVE
-  OUT_OF_STOCK
-}
-
-// Models
-model User {
-  id            String    @id @default(uuid())
-  email         String    @unique
-  phoneNumber   String?   @unique @map("phone_number")
-  firstName     String    @map("first_name")
-  lastName      String    @map("last_name")
-  role          UserRole  @default(BUYER)
-  
-  // Seller specific fields
-  shopName      String?   @map("shop_name")
-  shopDescription String? @map("shop_description")
-  shopLogo      String?   @map("shop_logo")
-  
-  // Authentication (handled by Supabase, but we store reference)
-  supabaseId    String    @unique @map("supabase_id")
-  
-  // Metadata
-  isActive      Boolean   @default(true) @map("is_active")
-  isVerified    Boolean   @default(false) @map("is_verified")
-  createdAt     DateTime  @default(now()) @map("created_at")
-  updatedAt     DateTime  @updatedAt @map("updated_at")
-  
-  // Relations
-  addresses     Address[]
-  products      Product[]
-  orders        Order[]
-  reviews       Review[]
-  notifications Notification[]
-  
-  @@map("users")
-}
-
-model Address {
-  id            String   @id @default(uuid())
-  userId        String   @map("user_id")
-  
-  fullName      String   @map("full_name")
-  phoneNumber   String   @map("phone_number")
-  streetAddress String   @map("street_address")
-  barangay      String
-  city          String
-  province      String
-  postalCode    String?  @map("postal_code")
-  
-  isDefault     Boolean  @default(false) @map("is_default")
-  createdAt     DateTime @default(now()) @map("created_at")
-  updatedAt     DateTime @updatedAt @map("updated_at")
-  
-  // Relations
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  orders        Order[]
-  
-  @@index([userId])
-  @@map("addresses")
-}
-
-model Category {
-  id          String    @id @default(uuid())
-  name        String    @unique
-  slug        String    @unique
-  description String?
-  imageUrl    String?   @map("image_url")
-  
-  isActive    Boolean   @default(true) @map("is_active")
-  sortOrder   Int       @default(0) @map("sort_order")
-  createdAt   DateTime  @default(now()) @map("created_at")
-  updatedAt   DateTime  @updatedAt @map("updated_at")
-  
-  // Relations
-  products    Product[]
-  
-  @@map("categories")
-}
-
-model Product {
-  id            String        @id @default(uuid())
-  sellerId      String        @map("seller_id")
-  categoryId    String        @map("category_id")
-  
-  name          String
-  slug          String        @unique
-  description   String        @db.Text
-  
-  // Fish specific details
-  species       String?
-  strain        String?       // For guppies: Moscow, Tuxedo, etc.
-  gender        String?       // Male, Female, Pair, Unsexed
-  size          String?       // Small, Medium, Large, or specific cm
-  age           String?       // Weeks/Months old
-  
-  // Pricing and stock
-  price         Decimal       @db.Decimal(10, 2)
-  comparePrice  Decimal?      @map("compare_price") @db.Decimal(10, 2)
-  stock         Int           @default(0)
-  minOrder      Int           @default(1) @map("min_order")
-  maxOrder      Int?          @map("max_order")
-  
-  // Location
-  city          String
-  province      String
-  
-  // Status
-  status        ProductStatus @default(ACTIVE)
-  
-  // SEO and views
-  views         Int           @default(0)
-  sales         Int           @default(0)
-  
-  // Metadata
-  createdAt     DateTime      @default(now()) @map("created_at")
-  updatedAt     DateTime      @updatedAt @map("updated_at")
-  
-  // Relations
-  seller        User          @relation(fields: [sellerId], references: [id], onDelete: Cascade)
-  category      Category      @relation(fields: [categoryId], references: [id])
-  images        ProductImage[]
-  orderItems    OrderItem[]
-  reviews       Review[]
-  
-  @@index([sellerId])
-  @@index([categoryId])
-  @@index([status])
-  @@index([createdAt])
-  @@map("products")
-}
-
-model ProductImage {
-  id          String   @id @default(uuid())
-  productId   String   @map("product_id")
-  
-  imageUrl    String   @map("image_url")
-  publicId    String   @map("public_id") // Cloudinary public ID
-  altText     String?  @map("alt_text")
-  sortOrder   Int      @default(0) @map("sort_order")
-  
-  createdAt   DateTime @default(now()) @map("created_at")
-  
-  // Relations
-  product     Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
-  
-  @@index([productId])
-  @@map("product_images")
-}
-
-model Order {
-  id              String      @id @default(uuid())
-  orderNumber     String      @unique @map("order_number")
-  buyerId         String      @map("buyer_id")
-  addressId       String      @map("address_id")
-  
-  // Order details
-  subtotal        Decimal     @db.Decimal(10, 2)
-  shippingFee     Decimal     @db.Decimal(10, 2) @map("shipping_fee")
-  total           Decimal     @db.Decimal(10, 2)
-  
-  // Payment
-  paymentMethod   PaymentMethod @map("payment_method")
-  paymentStatus   PaymentStatus @default(PENDING) @map("payment_status")
-  
-  // Shipping
-  status          OrderStatus @default(PENDING)
-  trackingNumber  String?     @map("tracking_number")
-  courier         String?
-  
-  // Notes
-  buyerNotes      String?     @map("buyer_notes") @db.Text
-  sellerNotes     String?     @map("seller_notes") @db.Text
-  
-  // Timestamps
-  confirmedAt     DateTime?   @map("confirmed_at")
-  shippedAt       DateTime?   @map("shipped_at")
-  deliveredAt     DateTime?   @map("delivered_at")
-  cancelledAt     DateTime?   @map("cancelled_at")
-  createdAt       DateTime    @default(now()) @map("created_at")
-  updatedAt       DateTime    @updatedAt @map("updated_at")
-  
-  // Relations
-  buyer           User        @relation(fields: [buyerId], references: [id])
-  address         Address     @relation(fields: [addressId], references: [id])
-  items           OrderItem[]
-  payment         Payment?
-  
-  @@index([buyerId])
-  @@index([orderNumber])
-  @@index([status])
-  @@index([createdAt])
-  @@map("orders")
-}
-
-model OrderItem {
-  id          String   @id @default(uuid())
-  orderId     String   @map("order_id")
-  productId   String   @map("product_id")
-  
-  quantity    Int
-  price       Decimal  @db.Decimal(10, 2) // Price at time of order
-  subtotal    Decimal  @db.Decimal(10, 2)
-  
-  // Product snapshot (in case product is deleted)
-  productName String   @map("product_name")
-  productImage String? @map("product_image")
-  
-  createdAt   DateTime @default(now()) @map("created_at")
-  
-  // Relations
-  order       Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  product     Product  @relation(fields: [productId], references: [id])
-  
-  @@index([orderId])
-  @@index([productId])
-  @@map("order_items")
-}
-
-model Payment {
-  id                String        @id @default(uuid())
-  orderId           String        @unique @map("order_id")
-  
-  amount            Decimal       @db.Decimal(10, 2)
-  paymentMethod     PaymentMethod @map("payment_method")
-  status            PaymentStatus @default(PENDING)
-  
-  // PayMongo details
-  paymentIntentId   String?       @map("payment_intent_id")
-  sourceId          String?       @map("source_id")
-  
-  // Transaction details
-  transactionId     String?       @map("transaction_id")
-  paidAt            DateTime?     @map("paid_at")
-  
-  // Refund details
-  refundedAmount    Decimal?      @map("refunded_amount") @db.Decimal(10, 2)
-  refundedAt        DateTime?     @map("refunded_at")
-  refundReason      String?       @map("refund_reason")
-  
-  // Metadata
-  metadata          Json?
-  createdAt         DateTime      @default(now()) @map("created_at")
-  updatedAt         DateTime      @updatedAt @map("updated_at")
-  
-  // Relations
-  order             Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  
-  @@index([paymentIntentId])
-  @@index([status])
-  @@map("payments")
-}
-
-model Review {
-  id          String   @id @default(uuid())
-  productId   String   @map("product_id")
-  userId      String   @map("user_id")
-  
-  rating      Int      // 1-5 stars
-  comment     String?  @db.Text
-  images      String[] // Array of image URLs
-  
-  // Helpful votes
-  helpfulCount Int     @default(0) @map("helpful_count")
-  
-  // Seller response
-  sellerResponse String? @map("seller_response") @db.Text
-  respondedAt    DateTime? @map("responded_at")
-  
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
-  
-  // Relations
-  product     Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
-  @@unique([productId, userId]) // One review per user per product
-  @@index([productId])
-  @@index([userId])
-  @@map("reviews")
-}
-
-model Notification {
-  id          String   @id @default(uuid())
-  userId      String   @map("user_id")
-  
-  type        String   // ORDER_UPDATE, PAYMENT_SUCCESS, NEW_MESSAGE, etc.
-  title       String
-  message     String   @db.Text
-  
-  // Additional data
-  data        Json?
-  
-  // Status
-  isRead      Boolean  @default(false) @map("is_read")
-  readAt      DateTime? @map("read_at")
-  
-  createdAt   DateTime @default(now()) @map("created_at")
-  
-  // Relations
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
-  @@index([userId, isRead])
-  @@index([createdAt])
-  @@map("notifications")
-}
-```
-
-## Database Indexes
-
-### Performance Optimization Indexes
-
-```sql
--- Users table
-CREATE INDEX idx_users_email ON users(email);
-CREATE INDEX idx_users_phone_number ON users(phone_number);
-CREATE INDEX idx_users_role ON users(role);
-
--- Products table
-CREATE INDEX idx_products_seller_id ON products(seller_id);
-CREATE INDEX idx_products_category_id ON products(category_id);
-CREATE INDEX idx_products_status ON products(status);
-CREATE INDEX idx_products_created_at ON products(created_at DESC);
-CREATE INDEX idx_products_price ON products(price);
-CREATE INDEX idx_products_city_province ON products(city, province);
-
--- Full text search on products
-CREATE INDEX idx_products_name_search ON products USING gin(to_tsvector('english', name));
-CREATE INDEX idx_products_description_search ON products USING gin(to_tsvector('english', description));
-
--- Orders table
-CREATE INDEX idx_orders_buyer_id ON orders(buyer_id);
-CREATE INDEX idx_orders_order_number ON orders(order_number);
-CREATE INDEX idx_orders_status ON orders(status);
-CREATE INDEX idx_orders_created_at ON orders(created_at DESC);
-CREATE INDEX idx_orders_payment_status ON orders(payment_status);
-
--- Order Items table
-CREATE INDEX idx_order_items_order_id ON order_items(order_id);
-CREATE INDEX idx_order_items_product_id ON order_items(product_id);
-
--- Payments table
-CREATE INDEX idx_payments_order_id ON payments(order_id);
-CREATE INDEX idx_payments_status ON payments(status);
-CREATE INDEX idx_payments_payment_intent_id ON payments(payment_intent_id);
-
--- Reviews table
-CREATE INDEX idx_reviews_product_id ON reviews(product_id);
-CREATE INDEX idx_reviews_user_id ON reviews(user_id);
-CREATE INDEX idx_reviews_rating ON reviews(rating);
-
--- Notifications table
-CREATE INDEX idx_notifications_user_read ON notifications(user_id, is_read);
-CREATE INDEX idx_notifications_created_at ON notifications(created_at DESC);
-```
-
-## Sample Data
-
-### Categories
-```sql
-INSERT INTO categories (id, name, slug, description, is_active, sort_order) VALUES
-('cat-1', 'Guppies', 'guppies', 'Various guppy strains and colors', true, 1),
-('cat-2', 'Betta Fish', 'betta-fish', 'Siamese fighting fish', true, 2),
-('cat-3', 'Tetras', 'tetras', 'Small schooling fish', true, 3),
-('cat-4', 'Goldfish', 'goldfish', 'Various goldfish varieties', true, 4),
-('cat-5', 'Shrimp', 'shrimp', 'Freshwater aquarium shrimp', true, 5);
-```
-
-## Database Migrations
-
-### Initial Migration
-```bash
-npx prisma migrate dev --name init
-```
-
-### Common Migrations
-```bash
-# Add new field
-npx prisma migrate dev --name add_product_tags
-
-# Modify field
-npx prisma migrate dev --name update_price_precision
-
-# Add index
-npx prisma migrate dev --name add_search_indexes
-```
-
-## Data Validation Rules
-
-### Users
-- Email must be valid format and unique
-- Phone number must be Philippine format (+63 or 09)
-- First name and last name required
-- Shop name required if role is SELLER
-
-### Products
-- Price must be positive
-- Stock must be non-negative
-- Minimum order must be at least 1
-- Maximum order must be greater than minimum order
-- At least one image required
-- Name must be between 3-200 characters
-
-### Orders
-- Total must equal subtotal + shipping fee
-- Payment status must update before order status changes to CONFIRMED
-- Cannot cancel order if status is SHIPPED or DELIVERED
-- Refund amount cannot exceed total
-
-### Reviews
-- Rating must be between 1-5
-- User can only review products they have purchased
-- One review per user per product
-
-## Backup Strategy
-
-### Automated Backups
-- **Daily backups**: Supabase provides automatic daily backups
-- **Retention**: 7 days for free tier, 30 days for paid tier
-- **Point-in-time recovery**: Available for paid plans
-
-### Manual Backups
-```bash
-# Export database
-pg_dump -h [host] -U [user] -d [database] > backup.sql
-
-# Import database
-psql -h [host] -U [user] -d [database] < backup.sql
-```
-
-### Critical Data
-- User information
-- Order history
-- Payment records
-- Product listings
-
-## Query Examples
-
-### Get products with images and category
 ```typescript
-const products = await prisma.product.findMany({
-  where: {
-    status: 'ACTIVE',
-    stock: { gt: 0 }
-  },
-  include: {
-    images: {
-      orderBy: { sortOrder: 'asc' }
-    },
-    category: true,
-    seller: {
-      select: {
-        shopName: true,
-        shopLogo: true
-      }
-    }
-  },
-  orderBy: { createdAt: 'desc' },
-  take: 20
-});
-```
+import { defineSchema, defineTable } from "convex/server";
+import { v } from "convex/values";
 
-### Get user orders with items
-```typescript
-const orders = await prisma.order.findMany({
-  where: { buyerId: userId },
-  include: {
-    items: {
-      include: {
-        product: {
-          include: {
-            images: { take: 1 }
-          }
-        }
-      }
-    },
-    address: true,
-    payment: true
-  },
-  orderBy: { createdAt: 'desc' }
-});
-```
+export default defineSchema({
+    // Users Profile Collection
+    users: defineTable({
+        email: v.string(),
+        phoneNumber: v.optional(v.string()),
+        firstName: v.string(),
+        middleName: v.optional(v.string()),
+        lastName: v.string(),
+        role: v.union(v.literal("BUYER"), v.literal("SELLER"), v.literal("ADMIN")),
+        shopName: v.optional(v.string()),
+        shopDescription: v.optional(v.string()),
+        shopLogo: v.optional(v.string()),
+        password: v.optional(v.string()),
+        passwordSalt: v.optional(v.string()), // Hashed salt
+        isActive: v.boolean(),
+        isVerified: v.boolean(),
+    }).index("by_email", ["email"]),
 
-### Search products
-```typescript
-const products = await prisma.product.findMany({
-  where: {
-    OR: [
-      { name: { contains: searchTerm, mode: 'insensitive' } },
-      { description: { contains: searchTerm, mode: 'insensitive' } },
-      { species: { contains: searchTerm, mode: 'insensitive' } }
-    ],
-    status: 'ACTIVE'
-  }
+    // User Sessions
+    sessions: defineTable({
+        userId: v.id("users"),
+        tokenHash: v.string(),
+        expiresAt: v.number(),
+        revokedAt: v.optional(v.number()),
+    })
+        .index("by_tokenHash", ["tokenHash"])
+        .index("by_user", ["userId"]),
+
+    // Shipping & Billing Addresses
+    addresses: defineTable({
+        userId: v.id("users"),
+        firstName: v.string(),
+        middleName: v.optional(v.string()),
+        lastName: v.string(),
+        phoneNumber: v.string(),
+        streetAddress: v.string(),
+        barangay: v.string(),
+        city: v.string(),
+        province: v.string(),
+        postalCode: v.optional(v.string()),
+        isDefault: v.boolean(),
+    }).index("by_user", ["userId"]),
+
+    // Product Categories
+    categories: defineTable({
+        name: v.string(),
+        slug: v.string(),
+        description: v.optional(v.string()),
+        imageUrl: v.optional(v.string()),
+        isActive: v.boolean(),
+        sortOrder: v.number(),
+    }).index("by_slug", ["slug"]),
+
+    // Product Listings
+    products: defineTable({
+        sellerId: v.id("users"),
+        categoryId: v.id("categories"),
+        name: v.string(),
+        slug: v.string(),
+        description: v.string(),
+        species: v.optional(v.string()),
+        strain: v.optional(v.string()),
+        gender: v.optional(v.string()),
+        size: v.optional(v.string()),
+        age: v.optional(v.string()),
+        price: v.number(),
+        comparePrice: v.optional(v.number()),
+        stock: v.number(),
+        minOrder: v.number(),
+        maxOrder: v.optional(v.number()),
+        city: v.string(),
+        province: v.string(),
+        status: v.union(v.literal("ACTIVE"), v.literal("INACTIVE"), v.literal("OUT_OF_STOCK")),
+        views: v.number(),
+        sales: v.number(),
+        searchTerms: v.optional(v.array(v.string())), // Normalized tokens for text search
+    })
+        .index("by_seller", ["sellerId"])
+        .index("by_category", ["categoryId"])
+        .index("by_slug", ["slug"])
+        .index("by_status", ["status"]),
+
+    // Product Listing Media Elements
+    product_images: defineTable({
+        productId: v.id("products"),
+        imageUrl: v.string(),
+        publicId: v.string(),
+        altText: v.optional(v.string()),
+        sortOrder: v.number(),
+    }).index("by_product", ["productId"]),
+
+    // Orders Collection
+    orders: defineTable({
+        orderNumber: v.string(),
+        buyerId: v.id("users"),
+        addressId: v.id("addresses"),
+        subtotal: v.number(),
+        shippingFee: v.number(),
+        total: v.number(),
+        paymentMethod: v.union(v.literal("GCASH"), v.literal("MAYA"), v.literal("CARD"), v.literal("BANK_TRANSFER"), v.literal("COD")),
+        paymentStatus: v.union(v.literal("PENDING"), v.literal("PROCESSING"), v.literal("PAID"), v.literal("FAILED"), v.literal("REFUNDED")),
+        status: v.union(v.literal("PENDING"), v.literal("CONFIRMED"), v.literal("PROCESSING"), v.literal("SHIPPED"), v.literal("DELIVERED"), v.literal("CANCELLED"), v.literal("REFUNDED")),
+        trackingNumber: v.optional(v.string()),
+        courier: v.optional(v.string()),
+        buyerNotes: v.optional(v.string()),
+        sellerNotes: v.optional(v.string()),
+        confirmedAt: v.optional(v.number()),
+        shippedAt: v.optional(v.number()),
+        deliveredAt: v.optional(v.number()),
+        cancelledAt: v.optional(v.number()),
+        inventoryCommittedAt: v.optional(v.number()),
+        reservationExpiresAt: v.optional(v.number()),
+    })
+        .index("by_orderNumber", ["orderNumber"])
+        .index("by_buyer", ["buyerId"])
+        .index("by_status", ["status"]),
+
+    // Order Line Items (Denormalized Snapshot)
+    order_items: defineTable({
+        orderId: v.id("orders"),
+        productId: v.id("products"),
+        sellerId: v.id("users"), // Denormalized for seller-specific sales reports
+        quantity: v.number(),
+        price: v.number(),
+        subtotal: v.number(),
+        productName: v.string(),
+        productImage: v.optional(v.string()),
+    })
+        .index("by_order", ["orderId"])
+        .index("by_seller", ["sellerId"]),
+
+    // Payments Logs & PayMongo Intents
+    payments: defineTable({
+        orderId: v.id("orders"),
+        amount: v.number(),
+        paymentMethod: v.union(v.literal("GCASH"), v.literal("MAYA"), v.literal("CARD"), v.literal("BANK_TRANSFER"), v.literal("COD")),
+        status: v.union(v.literal("PENDING"), v.literal("PROCESSING"), v.literal("PAID"), v.literal("FAILED"), v.literal("REFUNDED")),
+        checkoutSessionId: v.optional(v.string()),
+        paymentIntentId: v.optional(v.string()),
+        sourceId: v.optional(v.string()),
+        transactionId: v.optional(v.string()),
+        paidAt: v.optional(v.number()),
+        refundedAmount: v.optional(v.number()),
+        refundedAt: v.optional(v.number()),
+        refundReason: v.optional(v.string()),
+        metadata: v.optional(v.object({
+            orderId: v.optional(v.id("orders")),
+            buyerId: v.optional(v.id("users")),
+            orderNumber: v.optional(v.string()),
+            paymentMethod: v.optional(v.union(
+                v.literal("GCASH"), v.literal("MAYA"), v.literal("CARD"), v.literal("BANK_TRANSFER"), v.literal("COD")
+            )),
+            checkoutSessionId: v.optional(v.string()),
+            paymentIntentId: v.optional(v.string()),
+            sourceId: v.optional(v.string()),
+        })),
+    })
+        .index("by_order", ["orderId"])
+        .index("by_checkoutSessionId", ["checkoutSessionId"])
+        .index("by_paymentIntentId", ["paymentIntentId"]),
+
+    // Ratings and Reviews
+    reviews: defineTable({
+        productId: v.id("products"),
+        userId: v.id("users"),
+        rating: v.number(),
+        comment: v.optional(v.string()),
+        images: v.array(v.string()),
+        helpfulCount: v.number(),
+        sellerResponse: v.optional(v.string()),
+        respondedAt: v.optional(v.number()),
+    })
+        .index("by_product", ["productId"])
+        .index("by_user", ["userId"])
+        .index("by_product_user", ["productId", "userId"]),
+
+    // Push & In-App Notifications
+    notifications: defineTable({
+        userId: v.id("users"),
+        type: v.string(),
+        title: v.string(),
+        message: v.string(),
+        data: v.optional(v.object({
+            orderId: v.optional(v.id("orders")),
+            orderNumber: v.optional(v.string()),
+            status: v.optional(v.union(
+                v.literal("PENDING"), v.literal("CONFIRMED"), v.literal("PROCESSING"), v.literal("SHIPPED"), v.literal("DELIVERED"), v.literal("CANCELLED"), v.literal("REFUNDED")
+            )),
+            trackingNumber: v.optional(v.string()),
+            productId: v.optional(v.id("products")),
+        })),
+        isRead: v.boolean(),
+        readAt: v.optional(v.number()),
+    }).index("by_user_read", ["userId", "isRead"]),
+
+    // Chat Messenger Collections
+    conversations: defineTable({
+        productId: v.optional(v.id("products")),
+    }),
+
+    conversation_participants: defineTable({
+        conversationId: v.id("conversations"),
+        userId: v.id("users"),
+        joinedAt: v.number(),
+    })
+        .index("by_conversation", ["conversationId"])
+        .index("by_user", ["userId"])
+        .index("by_conversation_user", ["conversationId", "userId"]),
+
+    chat_messages: defineTable({
+        conversationId: v.id("conversations"),
+        senderId: v.id("users"),
+        content: v.string(),
+        isRead: v.boolean(),
+    }).index("by_conversation", ["conversationId"]),
+
+    // Authentication Recovery
+    password_reset_tokens: defineTable({
+        userId: v.id("users"),
+        tokenHash: v.string(),
+        expiresAt: v.number(),
+    }).index("by_tokenHash", ["tokenHash"]),
+
+    // Expo/FCM Device Registration Tokens
+    push_tokens: defineTable({
+        userId: v.id("users"),
+        token: v.string(),
+        platform: v.union(v.literal("ios"), v.literal("android")),
+    })
+        .index("by_user", ["userId"])
+        .index("by_token", ["token"]),
 });
 ```
 
 ---
 
-**Document Version**: 1.0  
-**Last Updated**: December 23, 2025
+## 3. Database Indexes & Query Optimizations
+
+Unlike relational databases where SQL engines analyze and plan dynamic searches, **Convex indexed queries must specify which index is being queried**. 
+
+Below is a catalog of the database indexes along with their optimizations:
+
+### A. Authentication & Sessions
+*   **`by_email`** on `users(["email"])`: 
+    Used on logins to quickly find the corresponding profile.
+*   **`by_tokenHash`** on `sessions(["tokenHash"])`:
+    Verifies authentication requests instantly on every secure API hit.
+
+### B. E-Commerce Listings Filtering
+*   **`by_seller`** on `products(["sellerId"])`:
+    Optimizes public shop screens and the seller inventory dashboard.
+*   **`by_category`** on `products(["categoryId"])`:
+    Optimizes target browse filters on category clicks.
+*   **`by_status`** on `products(["status"])`:
+    Queries active products exclusively (`status = "ACTIVE"`) while filtering out inactive or out-of-stock listings.
+
+### C. Order Routing & Payment Logs
+*   **`by_orderNumber`** on `orders(["orderNumber"])`:
+    Locates detailed order data when processing administrative actions or webhooks.
+*   **`by_checkoutSessionId`** on `payments(["checkoutSessionId"])`:
+    Enables immediate lookup when processing checkout notifications from the PayMongo payment gateway webhook.
+
+---
+
+## 4. Seeding Data
+
+Seeding is handled via Convex TypeScript mutation handlers located in `convex/seed.ts`. It allows initializing database configurations deterministically across development, staging, or production projects.
+
+To seed the initial listing categories:
+```bash
+npx convex run seed
+```
+
+### Seeding Implementation Details:
+```typescript
+import { mutation } from "./_generated/server";
+
+export const seed = mutation({
+    args: {},
+    handler: async (ctx) => {
+        const categories = [
+            { name: "Live Fish", slug: "live-fish", sortOrder: 1, isActive: true },
+            { name: "Aquarium Plants", slug: "aquarium-plants", sortOrder: 2, isActive: true },
+            { name: "Fish Food", slug: "fish-food", sortOrder: 3, isActive: true },
+            { name: "Aquarium Supplies", slug: "aquarium-supplies", sortOrder: 5, isActive: true },
+        ];
+
+        for (const cat of categories) {
+            const existing = await ctx.db
+                .query("categories")
+                .filter((q) => q.eq(q.field("name"), cat.name))
+                .unique();
+
+            if (!existing) {
+                await ctx.db.insert("categories", cat);
+            }
+        }
+    },
+});
+```
+
+---
+
+## 5. Schema Evolution & Migrations
+
+Convex database schemas are **implicitly versioned and dynamically checked**. Typical SQL migrations (e.g. `npx prisma migrate dev`) do not exist. Instead, Convex ensures type safety by evaluating live writes against the schema compiled in `schema.ts`.
+
+### Schema Migration Guidelines:
+1.  **Adding Optional Fields**:
+    Adding an optional field (e.g., `Species` as `v.optional(v.string())`) requires no manual database changes. Existing documents will naturally fall into the type definition (resolving to `undefined` during reads).
+2.  **Adding Required Fields**:
+    To add a new required field, implement it in three safe steps:
+    *   **Step 1**: Declare the field as `v.optional(...)` in `schema.ts`.
+    *   **Step 2**: Create and run a temporary Convex internal mutation script to traverse and write default values into all historical documents:
+        ```typescript
+        export const migrateHistoricalDocs = internalMutation({
+            handler: async (ctx) => {
+                const documents = await ctx.db.query("tableName").collect();
+                for (const doc of documents) {
+                    await ctx.db.patch(doc._id, { newField: "defaultValue" });
+                }
+            }
+        });
+        ```
+    *   **Step 3**: Promote the field to a required type in `schema.ts` once all documents have been successfully updated.
+
+---
+
+## 6. Practical Query & Mutation Patterns
+
+### Fetching Product Listing Details (Query)
+```typescript
+export const getProduct = query({
+    args: { id: v.id("products") },
+    handler: async (ctx, args) => {
+        const product = await ctx.db.get(args.id);
+        if (!product) return null;
+
+        const images = await ctx.db
+            .query("product_images")
+            .withIndex("by_product", (q) => q.eq("productId", product._id))
+            .collect();
+
+        return {
+            ...product,
+            images,
+        };
+    },
+});
+```
+
+### Commit Order and Block Inventory (Mutation)
+```typescript
+export const commitInventory = mutation({
+    args: { orderId: v.id("orders") },
+    handler: async (ctx, args) => {
+        const order = await ctx.db.get(args.orderId);
+        if (!order || order.inventoryCommittedAt) return;
+
+        const items = await ctx.db
+            .query("order_items")
+            .withIndex("by_order", (q) => q.eq("orderId", order._id))
+            .collect();
+
+        for (const item of items) {
+            const product = await ctx.db.get(item.productId);
+            if (!product || product.stock < item.quantity) {
+                throw new Error("Insufficient stock");
+            }
+            // Atomically decrement stock
+            await ctx.db.patch(item.productId, {
+                stock: product.stock - item.quantity,
+                sales: (product.sales || 0) + item.quantity,
+            });
+        }
+
+        await ctx.db.patch(order._id, {
+            inventoryCommittedAt: Date.now()
+        });
+    }
+});
+```
+
+---
+
+**Document Version**: 2.0  
+**Last Updated**: May 20, 2026  
+**Next Review**: December 2026

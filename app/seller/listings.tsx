@@ -22,6 +22,7 @@ export default function MyListingsScreen() {
     const products = productsQuery ?? [];
     type ListingProduct = NonNullable<(typeof products)[number]>;
     const deleteProduct = useMutation(api.products.deleteProduct);
+    const toggleStatus = useMutation(api.products.toggleStatus);
 
     const loading = productsQuery === undefined;
 
@@ -82,6 +83,22 @@ export default function MyListingsScreen() {
                         onPress={() => router.push(`/product/edit/${item._id}`)}
                     >
                         Edit
+                    </Button>
+                    <Button
+                        mode="text"
+                        compact
+                        textColor={item.status === 'ACTIVE' ? '#22C55E' : '#64748B'}
+                        onPress={async () => {
+                            if (!sessionToken) return;
+                            try {
+                                await toggleStatus({ sessionToken, id: item._id });
+                            } catch (err) {
+                                const message = err instanceof Error ? err.message : 'Failed to toggle status';
+                                Alert.alert('Error', message);
+                            }
+                        }}
+                    >
+                        {item.status === 'ACTIVE' ? 'Active' : 'Inactive'}
                     </Button>
                     <Button
                         icon={({ size, color }) => <LucideTrash2 size={size} color={theme.colors.error} />}

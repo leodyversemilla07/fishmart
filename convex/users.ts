@@ -46,6 +46,20 @@ export const createUser = internalMutation({
 });
 
 
+export const updatePassword = internalMutation({
+    args: {
+        userId: v.id("users"),
+        password: v.string(),
+        passwordSalt: v.string(),
+    },
+    handler: async (ctx, args) => {
+        await ctx.db.patch(args.userId, {
+            password: args.password,
+            passwordSalt: args.passwordSalt,
+        });
+    },
+});
+
 // We need a getProfileById for our new Auth system
 export const getProfileById = query({
     args: { sessionToken: v.string() },
@@ -276,7 +290,14 @@ export const getPublicProfile = query({
             })
         );
 
-        const productsWithImages = productDetails.map((entry) => entry.productWithImages);
+        // Sort: active products first, then by creation date
+        const productsWithImages = productDetails
+            .map((entry) => entry.productWithImages)
+            .sort((a, b) => {
+                if (a.status === "ACTIVE" && b.status !== "ACTIVE") return -1;
+                if (a.status !== "ACTIVE" && b.status === "ACTIVE") return 1;
+                return b._creationTime - a._creationTime;
+            });
         const reviewsWithProduct = productDetails.flatMap((entry) =>
             entry.reviews.map((review) => ({ ...review, product: entry.product }))
         );
@@ -301,7 +322,7 @@ export const getPublicProfile = query({
             ...user,
             shopLogo: resolvedShopLogo || user.shopLogo,
             products: productsWithImages,
-            averageRating: reviewCount > 0 ? totalRating / reviewCount : 5.0,
+            averageRating: reviewCount > 0 ? totalRating / reviewCount : null,
             reviewCount,
             isVerified: user.isVerified || false,
             recentReviews,

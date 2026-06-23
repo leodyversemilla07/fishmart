@@ -173,6 +173,31 @@ export const sendMessage = mutation({
     },
 });
 
+export const getUnreadMessageCount = query({
+    args: { sessionToken: v.string() },
+    handler: async (ctx, args) => {
+        const user = await requireSessionUser(ctx, args.sessionToken);
+        const participants = await ctx.db
+            .query("conversation_participants")
+            .withIndex("by_user", (q) => q.eq("userId", user._id))
+            .collect();
+
+        let totalUnread = 0;
+        for (const p of participants) {
+            const unread = await ctx.db
+                .query("chat_messages")
+                .withIndex("by_conversation", (q) => q.eq("conversationId", p.conversationId))
+                .filter((q) => q.and(
+                    q.eq(q.field("isRead"), false),
+                    q.neq(q.field("senderId"), user._id)
+                ))
+                .collect();
+            totalUnread += unread.length;
+        }
+        return totalUnread;
+    },
+});
+
 export const getMessages = query({
     args: { sessionToken: v.string(), conversationId: v.id("conversations") },
     handler: async (ctx, args) => {

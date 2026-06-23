@@ -1,6 +1,46 @@
 import { v } from "convex/values";
-import { internalMutation, mutation, query } from "./_generated/server";
+import { MutationCtx, internalMutation, mutation, query } from "./_generated/server";
 import { requireSessionUser } from "./lib/session";
+
+const EXPO_PUSH_API = "https://exp.host/--/api/v2/push/send";
+
+async function sendPushNotifications(
+    ctx: MutationCtx,
+    userId: string,
+    title: string,
+    body: string,
+    data?: Record<string, unknown>,
+) {
+    const tokens = await ctx.db
+        .query("push_tokens")
+        .withIndex("by_user", (q) => q.eq("userId", userId as any))
+        .collect();
+
+    if (tokens.length === 0) return;
+
+    for (const tokenDoc of tokens) {
+        const message = {
+            to: tokenDoc.token,
+            sound: "default" as const,
+            title,
+            body,
+            data: data || {},
+            channelId: "fishmart-default",
+        };
+
+        // Fire-and-forget — don't block the mutation on push delivery
+        fetch(EXPO_PUSH_API, {
+            method: "POST",
+            headers: {
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify(message),
+        }).catch((err) => {
+            console.error("Failed to send push notification:", err);
+        });
+    }
+}
 
 export const list = query({
     args: { sessionToken: v.string() },
@@ -49,7 +89,7 @@ export const create = internalMutation({
         })),
     },
     handler: async (ctx, args) => {
-        return await ctx.db.insert("notifications", {
+        const notifId = await ctx.db.insert("notifications", {
             userId: args.userId,
             type: args.type,
             title: args.title,
@@ -57,6 +97,13 @@ export const create = internalMutation({
             data: args.data,
             isRead: false,
         });
+
+        // Fire push notifications (fire-and-forget, non-blocking)
+        sendPushNotifications(ctx, args.userId, args.title, args.message, args.data as Record<string, unknown> | undefined).catch((err) => {
+            console.error("Push notification error (non-fatal):", err);
+        });
+
+        return notifId;
     },
 });
 
