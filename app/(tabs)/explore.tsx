@@ -1,7 +1,7 @@
 import { api } from '@/convex/_generated/api';
 import { Id } from '@/convex/_generated/dataModel';
 import { Category, Product } from '@/types';
-import { useQuery } from 'convex/react';
+import { usePaginatedQuery, useQuery } from 'convex/react';
 import { Image } from 'expo-image';
 import { router, useLocalSearchParams } from 'expo-router';
 import { LucideFilter, LucideMapPin, LucideStar, LucideX } from 'lucide-react-native';
@@ -87,11 +87,19 @@ export default function ExploreScreen() {
     ? selectedCategory 
     : categoryIdFromSlug;
 
-  const products = useQuery(api.products.list, {
-    search: searchQuery.trim() || undefined,
-    status: "ACTIVE",
-    categoryId: activeCategoryId,
-  });
+  const {
+    results: products,
+    status: paginationStatus,
+    loadMore,
+  } = usePaginatedQuery(
+    api.products.listPaginated,
+    {
+      search: searchQuery.trim() || undefined,
+      status: "ACTIVE",
+      categoryId: activeCategoryId,
+    },
+    { initialNumItems: 20 }
+  );
 
   // Filter States
   const [filterVisible, setFilterVisible] = useState(false);
@@ -100,7 +108,7 @@ export default function ExploreScreen() {
   const [city, setCity] = useState('');
   const [sortBy, setSortBy] = useState('newest');
 
-  const loading = products === undefined;
+  const loading = paginationStatus === 'LoadingFirstPage';
   const [refreshing, setRefreshing] = useState(false);
 
   const handleRefresh = () => {
@@ -218,6 +226,17 @@ export default function ExploreScreen() {
           contentContainerStyle={styles.productsContainer}
           onRefresh={handleRefresh}
           refreshing={refreshing}
+          onEndReached={() => {
+            if (paginationStatus === 'CanLoadMore') {
+              loadMore(20);
+            }
+          }}
+          onEndReachedThreshold={0.4}
+          ListFooterComponent={
+            paginationStatus === 'LoadingMore' ? (
+              <ActivityIndicator style={{ marginVertical: 16 }} color={theme.colors.primary} />
+            ) : null
+          }
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
               <Text variant="bodyLarge" style={styles.emptyText}>No products found</Text>

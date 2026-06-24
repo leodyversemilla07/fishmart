@@ -1,4 +1,6 @@
+import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
+import { Doc } from "./_generated/dataModel";
 import { MutationCtx, QueryCtx, mutation, query } from "./_generated/server";
 import { assertSeller, requireSessionUser } from "./lib/session";
 
@@ -8,6 +10,61 @@ const resolveUrl = async (ctx: QueryCtx | MutationCtx, url: string) => {
     // Assume it's a storage ID
     return await ctx.storage.getUrl(url);
 };
+
+function productMatchesSearch(product: { name: string; description: string; species?: string; strain?: string; searchTerms?: string[] }, rawSearch?: string) {
+    const search = rawSearch?.toLowerCase().trim();
+    if (!search) return true;
+
+    const searchWords = search.split(/[^a-z0-9]+/).filter(Boolean);
+    if (product.searchTerms && product.searchTerms.length > 0) {
+        return searchWords.every((word) => product.searchTerms!.some((term) => term.includes(word)));
+    }
+
+    return (
+        product.name.toLowerCase().includes(search) ||
+        product.description.toLowerCase().includes(search) ||
+        Boolean(product.species?.toLowerCase().includes(search)) ||
+        Boolean(product.strain?.toLowerCase().includes(search))
+    );
+}
+
+async function enrichProducts(ctx: QueryCtx | MutationCtx, products: Doc<"products">[]) {
+    const uniqueCategoryIds = [...new Set(products.map((p) => p.categoryId))];
+    const categories = await Promise.all(uniqueCategoryIds.map((categoryId) => ctx.db.get(categoryId)));
+    const categoryMap = new Map(uniqueCategoryIds.map((categoryId, i) => [categoryId, categories[i]]));
+
+    return await Promise.all(
+        products.map(async (product) => {
+            const [images, reviews] = await Promise.all([
+                ctx.db
+                    .query("product_images")
+                    .withIndex("by_product", (q) => q.eq("productId", product._id))
+                    .collect(),
+                ctx.db
+                    .query("reviews")
+                    .withIndex("by_product", (q) => q.eq("productId", product._id))
+                    .collect(),
+            ]);
+
+            const resolvedImages = await Promise.all(images.map(async (img) => ({
+                ...img,
+                imageUrl: await resolveUrl(ctx, img.imageUrl) || img.imageUrl
+            })));
+
+            const category = categoryMap.get(product.categoryId);
+
+            return {
+                ...product,
+                images: resolvedImages,
+                category: category ? { _id: category._id, name: category.name, slug: category.slug } : null,
+                rating: reviews.length > 0
+                    ? reviews.reduce((sum, review) => sum + review.rating, 0) / reviews.length
+                    : null,
+                reviewCount: reviews.length,
+            };
+        })
+    );
+}
 
 export const list = query({
     args: {
@@ -53,68 +110,77 @@ export const list = query({
             products = products.filter((p) => p.status === args.status);
         }
 
-        // Text search using searchTerms index for better performance
         if (args.search) {
-            const search = args.search.toLowerCase().trim();
-            const searchWords = search.split(/[^a-z0-9]+/).filter(Boolean);
-            products = products.filter((p) => {
-                if (!p.searchTerms || p.searchTerms.length === 0) {
-                    // Fallback for products without searchTerms
-                    return (
-                        p.name.toLowerCase().includes(search) ||
-                        p.description.toLowerCase().includes(search) ||
-                        (p.species && p.species.toLowerCase().includes(search)) ||
-                        (p.strain && p.strain.toLowerCase().includes(search))
-                    );
-                }
-                // Match all search words against stored terms
-                return searchWords.every((word) =>
-                    p.searchTerms!.some((term) => term.includes(word))
-                );
-            });
+            products = products.filter((product) => productMatchesSearch(product, args.search));
         }
 
-        const uniqueCategoryIds = [...new Set(products.map((p) => p.categoryId))];
-        const categories = await Promise.all(uniqueCategoryIds.map((categoryId) => ctx.db.get(categoryId)));
-        const categoryMap = new Map(uniqueCategoryIds.map((categoryId, i) => [categoryId, categories[i]]));
-
         const effectiveLimit = Math.max(1, Math.min(args.limit ?? 50, 100));
-        const limitedProducts = products.slice(0, effectiveLimit);
+        return await enrichProducts(ctx, products.slice(0, effectiveLimit));
+    },
+});
 
-        // Join with images and computed review stats
-        const productsWithImages = await Promise.all(
-            limitedProducts.map(async (product) => {
-                const [images, reviews] = await Promise.all([
-                    ctx.db
-                        .query("product_images")
-                        .withIndex("by_product", (q) => q.eq("productId", product._id))
-                        .collect(),
-                    ctx.db
-                        .query("reviews")
-                        .withIndex("by_product", (q) => q.eq("productId", product._id))
-                        .collect(),
-                ]);
+export const listPaginated = query({
+    args: {
+        categoryId: v.optional(v.id("categories")),
+        sellerId: v.optional(v.id("users")),
+        search: v.optional(v.string()),
+        status: v.optional(v.union(v.literal("ACTIVE"), v.literal("INACTIVE"), v.literal("OUT_OF_STOCK"))),
+        paginationOpts: paginationOptsValidator,
+    },
+    handler: async (ctx, args) => {
+        let productsQuery;
 
-                const resolvedImages = await Promise.all(images.map(async (img) => ({
-                    ...img,
-                    imageUrl: await resolveUrl(ctx, img.imageUrl) || img.imageUrl
-                })));
+        if (args.sellerId && args.status) {
+            const sellerId = args.sellerId;
+            const status = args.status;
+            productsQuery = ctx.db
+                .query("products")
+                .withIndex("by_seller_status", (q) => q.eq("sellerId", sellerId).eq("status", status));
+        } else if (args.status && args.categoryId) {
+            const status = args.status;
+            const categoryId = args.categoryId;
+            productsQuery = ctx.db
+                .query("products")
+                .withIndex("by_status_category", (q) => q.eq("status", status).eq("categoryId", categoryId));
+        } else if (args.sellerId) {
+            const sellerId = args.sellerId;
+            productsQuery = ctx.db
+                .query("products")
+                .withIndex("by_seller", (q) => q.eq("sellerId", sellerId));
+        } else if (args.categoryId) {
+            const categoryId = args.categoryId;
+            productsQuery = ctx.db
+                .query("products")
+                .withIndex("by_category", (q) => q.eq("categoryId", categoryId));
+        } else if (args.status) {
+            const status = args.status;
+            productsQuery = ctx.db
+                .query("products")
+                .withIndex("by_status", (q) => q.eq("status", status));
+        } else {
+            productsQuery = ctx.db.query("products");
+        }
 
-                const category = categoryMap.get(product.categoryId);
+        const result = await productsQuery.order("desc").paginate(args.paginationOpts);
+        let products = result.page;
 
-                return {
-                    ...product,
-                    images: resolvedImages,
-                    category: category ? { _id: category._id, name: category.name, slug: category.slug } : null,
-                    rating: reviews.length > 0
-                        ? reviews.reduce((sum, review) => sum + review.rating, 0) / reviews.length
-                        : null,
-                    reviewCount: reviews.length,
-                };
-            })
-        );
+        if (args.status && !args.sellerId && !args.categoryId) {
+            products = products.filter((product) => product.status === args.status);
+        }
+        if (args.categoryId && !args.status) {
+            products = products.filter((product) => product.categoryId === args.categoryId);
+        }
+        if (args.sellerId && !args.status) {
+            products = products.filter((product) => product.sellerId === args.sellerId);
+        }
+        if (args.search) {
+            products = products.filter((product) => productMatchesSearch(product, args.search));
+        }
 
-        return productsWithImages;
+        return {
+            ...result,
+            page: await enrichProducts(ctx, products),
+        };
     },
 });
 

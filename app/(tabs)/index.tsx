@@ -21,7 +21,7 @@ export default function HomeScreen() {
 
   // Use Convex hooks instead of local state and useEffect
   const categoriesQuery = useQuery(api.categories.list);
-  const featuredProductsQuery = useQuery(api.products.list, { status: "ACTIVE" });
+  const featuredProductsQuery = useQuery(api.products.list, { status: "ACTIVE", limit: 6 });
   const categories = categoriesQuery ?? [];
   const featuredProducts = featuredProductsQuery ?? [];
 
