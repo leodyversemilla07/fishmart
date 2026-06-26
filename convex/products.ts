@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import { Doc } from "./_generated/dataModel";
 import { MutationCtx, QueryCtx, mutation, query } from "./_generated/server";
 import { assertSeller, requireSessionUser } from "./lib/session";
+import { withoutSensitiveUserFields } from "./lib/users";
 
 const resolveUrl = async (ctx: QueryCtx | MutationCtx, url: string) => {
     if (!url) return null;
@@ -208,7 +209,8 @@ export const get = query({
             imageUrl: await resolveUrl(ctx, img.imageUrl) || img.imageUrl
         })));
 
-        let seller = sellerRecord;
+        const safeSeller = withoutSensitiveUserFields(sellerRecord);
+        let seller = safeSeller;
         if (seller?.shopLogo) {
             const resolvedLogo = await resolveUrl(ctx, seller.shopLogo);
             seller = { ...seller, shopLogo: resolvedLogo || seller.shopLogo };

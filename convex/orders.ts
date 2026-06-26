@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { api, internal } from "./_generated/api";
+import { internal } from "./_generated/api";
 import { action, internalMutation, MutationCtx, mutation, query } from "./_generated/server";
 import {
     applyOrderInventoryIfNeeded,
@@ -10,6 +10,7 @@ import {
     SHIPPING_FEE,
 } from "./lib/orders";
 import { assertSeller, requireSessionUser } from "./lib/session";
+import { withoutSensitiveUserFields } from "./lib/users";
 
 export const create = mutation({
     args: {
@@ -164,7 +165,7 @@ export const listIncomingOrders = query({
                 return {
                     ...order,
                     items: sellerItemsForOrder,
-                    buyer,
+                    buyer: withoutSensitiveUserFields(buyer),
                     address,
                 };
             })
@@ -276,7 +277,7 @@ export const get = query({
             ...order,
             items: isSeller && !isBuyer ? items.filter((item) => item.sellerId === actor._id) : items,
             address,
-            buyer,
+            buyer: withoutSensitiveUserFields(buyer),
         };
     },
 });
@@ -381,6 +382,6 @@ export const retryPayment = action({
         cancelUrl: v.string(),
     },
     handler: async (ctx, args): Promise<{ checkoutUrl: string; sessionId: string; orderNumber: string } | { error: string }> => {
-        return await ctx.runAction(api.paymongo.createCheckoutSession, args);
+        return await ctx.runAction(internal.paymongo.createCheckoutSessionInternal, args);
     },
 });

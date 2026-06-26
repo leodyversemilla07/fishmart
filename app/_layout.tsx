@@ -72,7 +72,7 @@ export default function RootLayout() {
   const navigationTheme = colorScheme === 'dark' ? NavigationDarkTheme : NavigationLightTheme;
   const theme = useTheme();
 
-  // Show splash until Zustand has hydrated from AsyncStorage
+  // Show splash until Zustand has hydrated persisted auth state.
   if (!hydrated) {
     return (
       <PaperProvider theme={paperTheme}>
@@ -101,21 +101,36 @@ export default function RootLayout() {
         <PaperProvider theme={paperTheme}>
           <ThemeProvider value={navigationTheme}>
             <Stack screenOptions={{ headerShown: false }}>
-              {isAuthenticated ? (
-                <>
-                  <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-                  <Stack.Screen name="admin" options={{ headerShown: false }} />
-                </>
-              ) : (
+              <Stack.Protected guard={isAuthenticated}>
+                <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+                <Stack.Screen name="admin" options={{ headerShown: false }} />
+                <Stack.Screen name="cart" options={{ headerShown: false }} />
+                <Stack.Screen
+                  name="cart/checkout"
+                  options={{ headerShown: false, presentation: 'card' }}
+                />
+                <Stack.Screen name="chat/[id]" options={{ headerShown: false }} />
+                <Stack.Screen name="notifications" options={{ headerShown: false }} />
+                <Stack.Screen name="orders" options={{ headerShown: false }} />
+                <Stack.Screen name="payment-cancelled" options={{ headerShown: false }} />
+                <Stack.Screen name="payment-success" options={{ headerShown: false }} />
+                <Stack.Screen name="product/edit/[id]" options={{ headerShown: false }} />
+                <Stack.Screen name="profile/address/[id]" options={{ headerShown: false }} />
+                <Stack.Screen name="profile/addresses" options={{ headerShown: false }} />
+                <Stack.Screen name="profile/reservations" options={{ headerShown: false }} />
+                <Stack.Screen name="profile/update" options={{ headerShown: false }} />
+                <Stack.Screen name="reviews/create" options={{ headerShown: false }} />
+                <Stack.Screen name="seller/listings" options={{ headerShown: false }} />
+                <Stack.Screen name="seller/orders" options={{ headerShown: false }} />
+              </Stack.Protected>
+
+              <Stack.Protected guard={!isAuthenticated}>
                 <Stack.Screen name="(auth)" options={{ headerShown: false }} />
-              )}
+              </Stack.Protected>
+
               <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
               <Stack.Screen
                 name="product/[id]"
-                options={{ headerShown: false, presentation: 'card' }}
-              />
-              <Stack.Screen
-                name="cart/checkout"
                 options={{ headerShown: false, presentation: 'card' }}
               />
             </Stack>

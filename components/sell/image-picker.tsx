@@ -60,8 +60,10 @@ export function ImagePickerSection({
                             style={styles.removePhotoBtn}
                             onPress={() => removeImage(index)}
                             activeOpacity={0.8}
+                            accessibilityRole="button"
+                            accessibilityLabel="Remove photo"
                         >
-                            <LucideX size={14} color="white" />
+                            <LucideX size={18} color="white" />
                         </TouchableOpacity>
                     </View>
                 ))}
@@ -110,9 +112,9 @@ const styles = StyleSheet.create({
         top: 0,
         right: 0,
         backgroundColor: '#EF4444',
-        borderRadius: 12,
-        width: 24,
-        height: 24,
+        borderRadius: 22,
+        width: 44,
+        height: 44,
         justifyContent: 'center',
         alignItems: 'center',
         zIndex: 10,

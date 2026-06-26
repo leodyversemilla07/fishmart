@@ -235,4 +235,16 @@ export default defineSchema({
     })
         .index("by_user", ["userId"])
         .index("by_token", ["token"]),
+
+    webhook_events: defineTable({
+        provider: v.union(v.literal("paymongo")),
+        eventId: v.string(),
+        eventType: v.string(),
+        livemode: v.optional(v.boolean()),
+        payload: v.any(),
+        status: v.union(v.literal("QUEUED"), v.literal("PROCESSED"), v.literal("FAILED")),
+        processedAt: v.optional(v.number()),
+        error: v.optional(v.string()),
+    })
+        .index("by_provider_eventId", ["provider", "eventId"]),
 });

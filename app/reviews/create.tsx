@@ -58,7 +58,7 @@ export default function CreateReviewScreen() {
             const uploadedUrls: string[] = await Promise.all(
                 images.map(async (img) => {
                     if (img.base64) {
-                        return await uploadImage(img.uri, img.base64, 'reviews', `products/${productIdValue}`);
+                        return await uploadImage(img.uri, img.base64, 'reviews', `products/${productIdValue}`, sessionToken);
                     }
                     return img.uri; // Should not happen with new images
                 })

@@ -33,10 +33,10 @@ export const pickImage = async (allowsMultiple = false, aspect: [number, number]
     return result;
 };
 
-export const uploadImage = async (uri: string, _base64: string | undefined | null, _bucket: string, _path: string): Promise<string> => {
+export const uploadImage = async (uri: string, _base64: string | undefined | null, _bucket: string, _path: string, sessionToken: string): Promise<string> => {
     try {
         // 1. Get Upload URL
-        const uploadUrl = await convex.mutation(api.upload.generateUploadUrl);
+        const uploadUrl = await convex.mutation(api.upload.generateUploadUrl, { sessionToken });
 
         // 2. Upload File
         // React Native fetch supports `uri` in body for file uploads if wrapped in FormData, 

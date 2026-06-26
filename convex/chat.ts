@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { Id } from "./_generated/dataModel";
 import { MutationCtx, QueryCtx, mutation, query } from "./_generated/server";
 import { requireSessionUser } from "./lib/session";
+import { withoutSensitiveUserFields } from "./lib/users";
 
 async function findConversationBetweenUsers(
     ctx: QueryCtx | MutationCtx,
@@ -57,7 +58,7 @@ export const getConversations = query({
 
                 return {
                     ...conv,
-                    otherUser,
+                    otherUser: withoutSensitiveUserFields(otherUser),
                     lastMessage,
                 };
             })

@@ -64,7 +64,7 @@ export default function UpdateProfileScreen() {
             // If new image, upload and get new Storage ID
             if (newImage) {
                 // uploadImage returns storageId
-                logoUrl = await uploadImage(newImage.uri, newImage.base64, 'avatars', 'profiles');
+                logoUrl = await uploadImage(newImage.uri, newImage.base64, 'avatars', 'profiles', sessionToken);
             }
 
             // Note: if we didn't change image, logoUrl is the resolved URL.

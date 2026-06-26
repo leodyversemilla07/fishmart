@@ -115,7 +115,7 @@ export default function EditProductScreen() {
                 if (img.isExisting) {
                     finalImageUrls.push(img.imageUrl);
                 } else if (img.base64) {
-                    const url = await uploadImage(img.uri, img.base64, 'products', 'listings');
+                    const url = await uploadImage(img.uri, img.base64, 'products', 'listings', sessionToken);
                     finalImageUrls.push(url);
                 }
             }
@@ -173,8 +173,13 @@ export default function EditProductScreen() {
                             {images.map((img, index) => (
                                 <View key={index} style={styles.photoWrapper}>
                                     <ExpoImage source={{ uri: img.isExisting ? img.imageUrl : img.uri }} style={styles.photoThumbnail} />
-                                    <TouchableOpacity style={styles.removePhotoBtn} onPress={() => removeImage(index)}>
-                                        <LucideX size={14} color="white" />
+                                    <TouchableOpacity
+                                        style={styles.removePhotoBtn}
+                                        onPress={() => removeImage(index)}
+                                        accessibilityRole="button"
+                                        accessibilityLabel="Remove photo"
+                                    >
+                                        <LucideX size={18} color="white" />
                                     </TouchableOpacity>
                                 </View>
                             ))}
@@ -242,7 +247,7 @@ const styles = StyleSheet.create({
     photoList: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
     photoWrapper: { position: 'relative', marginLeft: 10 },
     photoThumbnail: { width: 100, height: 100, borderRadius: 12, borderWidth: 1, borderColor: '#E2E8F0' },
-    removePhotoBtn: { position: 'absolute', top: -8, right: -8, backgroundColor: '#EF4444', borderRadius: 12, width: 24, height: 24, justifyContent: 'center', alignItems: 'center' },
+    removePhotoBtn: { position: 'absolute', top: -8, right: -8, backgroundColor: '#EF4444', borderRadius: 22, width: 44, height: 44, justifyContent: 'center', alignItems: 'center' },
     input: { marginBottom: 12, backgroundColor: 'white' },
     row: { flexDirection: 'row', gap: 12 },
     halfInput: { flex: 1 },

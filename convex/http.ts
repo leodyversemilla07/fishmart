@@ -19,6 +19,16 @@ async function hmacSha256(value: string, secret: string) {
         .join("");
 }
 
+function timingSafeEqual(a: string, b: string) {
+    let result = a.length ^ b.length;
+    const maxLength = Math.max(a.length, b.length);
+
+    for (let i = 0; i < maxLength; i += 1) {
+        result |= (a.charCodeAt(i) || 0) ^ (b.charCodeAt(i) || 0);
+    }
+    return result === 0;
+}
+
 async function verifyPayMongoSignature(rawBody: string, signatureHeader: string | null) {
     const secret = process.env.PAYMONGO_WEBHOOK_SECRET;
     if (!secret) {
@@ -28,13 +38,13 @@ async function verifyPayMongoSignature(rawBody: string, signatureHeader: string 
         throw new Error("Missing PayMongo signature header");
     }
 
-    const expected = await hmacSha256(rawBody, secret);
+    const expected = (await hmacSha256(rawBody, secret)).toLowerCase();
     const candidates = signatureHeader
         .split(",")
         .map((part) => part.split("=").pop()?.trim().toLowerCase())
-        .filter(Boolean);
+        .filter((candidate): candidate is string => Boolean(candidate));
 
-    if (!candidates.includes(expected.toLowerCase())) {
+    if (!candidates.some((candidate) => timingSafeEqual(candidate, expected))) {
         throw new Error("Invalid PayMongo webhook signature");
     }
 }
@@ -53,50 +63,7 @@ http.route({
             await verifyPayMongoSignature(rawBody, signatureHeader);
 
             const body = JSON.parse(rawBody);
-            const event = body.data;
-            const eventType = event.attributes.type;
-            const eventData = event.attributes.data;
-
-            switch (eventType) {
-                case "checkout_session.payment.paid": {
-                    const checkoutSessionId = eventData.id;
-                    const paymentIntent = eventData.attributes.payment_intent;
-
-                    await ctx.runMutation(internal.paymongo.updatePaymentStatus, {
-                        checkoutSessionId,
-                        paymentIntentId: paymentIntent?.id,
-                        status: "PAID",
-                        paymentMethod: paymentIntent?.attributes?.payment_method_type,
-                        transactionId: paymentIntent?.id,
-                        paidAt: Date.now(),
-                    });
-                    break;
-                }
-
-                case "payment.paid": {
-                    const paymentIntentId = eventData.attributes.payment_intent_id;
-                    await ctx.runMutation(internal.paymongo.updatePaymentStatus, {
-                        paymentIntentId,
-                        status: "PAID",
-                        paymentMethod: eventData.attributes.source?.type,
-                        transactionId: eventData.id,
-                        paidAt: Date.now(),
-                    });
-                    break;
-                }
-
-                case "payment.failed": {
-                    const paymentIntentId = eventData.attributes.payment_intent_id;
-                    await ctx.runMutation(internal.paymongo.updatePaymentStatus, {
-                        paymentIntentId,
-                        status: "FAILED",
-                    });
-                    break;
-                }
-
-                default:
-                    console.error("[Webhook] Unhandled PayMongo event:", eventType);
-            }
+            await ctx.runMutation(internal.paymongo.enqueueWebhookEvent, { payload: body });
 
             return new Response(JSON.stringify({ received: true }), {
                 status: 200,

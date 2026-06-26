@@ -54,7 +54,7 @@ export default function TabLayout() {
                     height: tabBarHeight + bottomPadding,
                     paddingBottom: bottomPadding,
                     paddingTop: 5,
-                    backgroundColor: 'white',
+                    backgroundColor: theme.colors.elevation.level2,
                     elevation: 10,
                     shadowColor: '#000',
                     shadowOffset: { width: 0, height: -2 },

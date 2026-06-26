@@ -5,7 +5,7 @@ import { usePaginatedQuery, useQuery } from 'convex/react';
 import { Image } from 'expo-image';
 import { router, useLocalSearchParams } from 'expo-router';
 import { LucideFilter, LucideMapPin, LucideStar, LucideX } from 'lucide-react-native';
-import { useEffect, useState } from 'react';
+import { memo, useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Dimensions, FlatList, Modal, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { Button, Chip, Divider, RadioButton, Searchbar, Text, TextInput, useTheme } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -13,7 +13,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const CARD_WIDTH = (SCREEN_WIDTH - 48) / 2;
 
-function ProductCard({ product }: { product: Product }) {
+const ProductCard = memo(function ProductCard({ product }: { product: Product }) {
   const theme = useTheme();
 
   return (
@@ -48,7 +48,7 @@ function ProductCard({ product }: { product: Product }) {
       </View>
     </TouchableOpacity>
   );
-}
+});
 
 export default function ExploreScreen() {
   const theme = useTheme();
@@ -115,6 +115,11 @@ export default function ExploreScreen() {
     setRefreshing(true);
     setTimeout(() => setRefreshing(false), 800);
   };
+
+  const renderProductItem = useCallback(
+    ({ item }: { item: Product }) => <ProductCard product={item} />,
+    []
+  );
 
   const applyFilters = () => {
     setFilterVisible(false);
@@ -219,7 +224,7 @@ export default function ExploreScreen() {
       ) : (
         <FlatList
           data={filteredProducts}
-          renderItem={({ item }: { item: Product }) => <ProductCard product={item} />}
+          renderItem={renderProductItem}
           keyExtractor={(item) => item._id}
           numColumns={2}
           columnWrapperStyle={styles.productRow}
@@ -232,6 +237,10 @@ export default function ExploreScreen() {
             }
           }}
           onEndReachedThreshold={0.4}
+          initialNumToRender={8}
+          maxToRenderPerBatch={8}
+          windowSize={5}
+          removeClippedSubviews
           ListFooterComponent={
             paginationStatus === 'LoadingMore' ? (
               <ActivityIndicator style={{ marginVertical: 16 }} color={theme.colors.primary} />

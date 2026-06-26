@@ -1,9 +1,10 @@
 import { v } from "convex/values";
-import { action, internalMutation, internalQuery } from "./_generated/server";
+import { ActionCtx, action, internalAction, internalMutation, internalQuery } from "./_generated/server";
 import { internal } from "./_generated/api";
-import { applyOrderInventoryIfNeeded, buildOrderLineItems, revertOrderInventoryIfCommitted } from "./lib/orders";
+import { Id } from "./_generated/dataModel";
+import { applyOrderInventoryIfNeeded, buildOrderLineItems, getReservationExpiryTimestamp, revertOrderInventoryIfCommitted } from "./lib/orders";
 
-const PAYMONGO_API_URL = "https://api.paymongo.com/v1";
+const PAYMONGO_API_URL = "https://api.paymongo.com/v2";
 
 const getPayMongoSecretKey = () => {
     const key = process.env.PAYMONGO_SECRET_KEY;
@@ -48,111 +49,136 @@ function toPayMongoPaymentMethod(paymentMethod: "GCASH" | "MAYA" | "CARD" | "BAN
     }
 }
 
-export const createCheckoutSession = action({
-    args: {
-        sessionToken: v.string(),
-        orderId: v.id("orders"),
-        successUrl: v.string(),
-        cancelUrl: v.string(),
-    },
-    handler: async (ctx, args): Promise<{ checkoutUrl: string; sessionId: string; orderNumber: string } | { error: string }> => {
-        try {
-            await ctx.runMutation(internal.orders.releaseExpiredReservations, {});
+const checkoutSessionArgs = {
+    sessionToken: v.string(),
+    orderId: v.id("orders"),
+    successUrl: v.string(),
+    cancelUrl: v.string(),
+};
 
-            const authResult = await ctx.runQuery(internal.auth.getSessionUser, { sessionToken: args.sessionToken });
-            if (!authResult) {
-                return { error: "Unauthorized" };
-            }
+type CreateCheckoutSessionArgs = {
+    sessionToken: string;
+    orderId: Id<"orders">;
+    successUrl: string;
+    cancelUrl: string;
+};
 
-            const order = await ctx.runQuery(internal.paymongo.getOrderForCheckout, {
-                orderId: args.orderId,
-                buyerId: authResult.user._id,
-            });
-            if (!order) {
-                return { error: "Order not found" };
-            }
-            if (order.paymentMethod === "COD") {
-                return { error: "Cash on Delivery orders do not require online payment" };
-            }
-            if (order.status !== "PENDING") {
-                return { error: "Order can no longer accept payment" };
-            }
-            if (order.paymentStatus === "PAID") {
-                return { error: "Order is already paid" };
-            }
-            if (order.reservationExpiresAt && order.reservationExpiresAt <= Date.now()) {
-                return { error: "Payment window has expired for this order" };
-            }
+async function createCheckoutSessionHandler(
+    ctx: ActionCtx,
+    args: CreateCheckoutSessionArgs
+): Promise<{ checkoutUrl: string; sessionId: string; orderNumber: string } | { error: string }> {
+    try {
+        await ctx.runMutation(internal.orders.releaseExpiredReservations, {});
 
-            const secretKey = getPayMongoSecretKey();
-            const lineItems = order.items.map((item: { name: string; quantity: number; amount: number; imageUrl?: string }) => ({
-                name: item.name,
-                quantity: item.quantity,
-                amount: Math.round(item.amount * 100),
-                currency: "PHP",
-                ...(item.imageUrl && { images: [item.imageUrl] }),
-            }));
+        const authResult = await ctx.runQuery(internal.auth.getSessionUser, { sessionToken: args.sessionToken });
+        if (!authResult) {
+            return { error: "Unauthorized" };
+        }
 
-            const payload = {
-                data: {
-                    attributes: {
-                        line_items: lineItems,
-                        payment_method_types: [toPayMongoPaymentMethod(order.paymentMethod)],
-                        success_url: args.successUrl,
-                        cancel_url: args.cancelUrl,
-                        description: `Fishmart Order #${order.orderNumber}`,
-                        reference_number: order.orderNumber,
-                        send_email_receipt: true,
-                        show_description: true,
-                        show_line_items: true,
-                        billing: {
-                            name: order.buyerName,
-                            email: order.buyerEmail,
-                            ...(order.buyerPhone && { phone: order.buyerPhone }),
-                        },
-                        metadata: {
-                            order_id: args.orderId,
-                            order_number: order.orderNumber,
-                        },
+        await ctx.runMutation(internal.paymongo.prepareOrderForCheckout, {
+            orderId: args.orderId,
+            buyerId: authResult.user._id,
+        });
+
+        const order = await ctx.runQuery(internal.paymongo.getOrderForCheckout, {
+            orderId: args.orderId,
+            buyerId: authResult.user._id,
+        });
+        if (!order) {
+            return { error: "Order not found" };
+        }
+        if (order.paymentMethod === "COD") {
+            return { error: "Cash on Delivery orders do not require online payment" };
+        }
+        if (order.status !== "PENDING") {
+            return { error: "Order can no longer accept payment" };
+        }
+        if (order.paymentStatus === "PAID") {
+            return { error: "Order is already paid" };
+        }
+        if (order.reservationExpiresAt && order.reservationExpiresAt <= Date.now()) {
+            return { error: "Payment window has expired for this order" };
+        }
+
+        const secretKey = getPayMongoSecretKey();
+        const lineItems = order.items.map((item: { name: string; quantity: number; amount: number; imageUrl?: string }) => ({
+            name: item.name,
+            quantity: item.quantity,
+            amount: Math.round(item.amount * 100),
+            currency: "PHP",
+            ...(item.imageUrl && { images: [item.imageUrl] }),
+        }));
+
+        const payload = {
+            data: {
+                attributes: {
+                    line_items: lineItems,
+                    payment_method_types: [toPayMongoPaymentMethod(order.paymentMethod)],
+                    success_url: args.successUrl,
+                    cancel_url: args.cancelUrl,
+                    description: `Fishmart Order #${order.orderNumber}`,
+                    reference_number: order.orderNumber,
+                    send_email_receipt: true,
+                    show_description: true,
+                    show_line_items: true,
+                    billing: {
+                        name: order.buyerName,
+                        email: order.buyerEmail,
+                        ...(order.buyerPhone && { phone: order.buyerPhone }),
+                    },
+                    metadata: {
+                        order_id: args.orderId,
+                        order_number: order.orderNumber,
                     },
                 },
-            };
+            },
+        };
 
-            const response = await fetch(`${PAYMONGO_API_URL}/checkout_sessions`, {
-                method: "POST",
-                headers: {
-                    Authorization: `Basic ${encodeCredentials(secretKey)}`,
-                    "Content-Type": "application/json",
-                },
-                body: JSON.stringify(payload),
-            });
+        const response = await fetch(`${PAYMONGO_API_URL}/checkout_sessions`, {
+            method: "POST",
+            headers: {
+                Authorization: `Basic ${encodeCredentials(secretKey)}`,
+                "Content-Type": "application/json",
+                "Idempotency-Key": `checkout:${args.orderId}:${order.reservationExpiresAt ?? "open"}`,
+            },
+            body: JSON.stringify(payload),
+        });
 
-            if (!response.ok) {
-                const errorData = await response.json();
-                console.error("PayMongo API error:", errorData);
-                return { error: errorData.errors?.[0]?.detail || "Failed to create checkout session" };
-            }
-
-            const data = await response.json();
-            const checkoutUrl = data.data.attributes.checkout_url;
-            const sessionId = data.data.id;
-
-            await ctx.runMutation(internal.paymongo.createPaymentRecord, {
-                orderId: args.orderId,
-                amount: order.totalAmount,
-                paymentMethod: order.paymentMethod,
-                checkoutSessionId: sessionId,
-            });
-
-            return { checkoutUrl, sessionId, orderNumber: order.orderNumber };
-        } catch (error) {
-            console.error("Error creating checkout session:", error);
-            return { error: error instanceof Error ? error.message : "Unknown error occurred" };
+        if (!response.ok) {
+            const errorData = await response.json();
+            console.error("PayMongo API error:", errorData);
+            return { error: errorData.errors?.[0]?.detail || "Failed to create checkout session" };
         }
-    },
+
+        const data = await response.json();
+        const checkoutUrl = data.data.attributes.checkout_url;
+        const sessionId = data.data.id;
+
+        await ctx.runMutation(internal.paymongo.createPaymentRecord, {
+            orderId: args.orderId,
+            amount: order.totalAmount,
+            paymentMethod: order.paymentMethod,
+            checkoutSessionId: sessionId,
+        });
+
+        return { checkoutUrl, sessionId, orderNumber: order.orderNumber };
+    } catch (error) {
+        console.error("Error creating checkout session:", error);
+        return { error: error instanceof Error ? error.message : "Unknown error occurred" };
+    }
+}
+
+export const createCheckoutSession = action({
+    args: checkoutSessionArgs,
+    handler: createCheckoutSessionHandler,
 });
 
-export const getCheckoutSession = action({
+export const createCheckoutSessionInternal = internalAction({
+    args: checkoutSessionArgs,
+    handler: createCheckoutSessionHandler,
+});
+
+export const getCheckoutSession = internalAction({
     args: {
         sessionId: v.string(),
     },
@@ -215,6 +241,40 @@ export const getOrderForCheckout = internalQuery({
     },
 });
 
+export const prepareOrderForCheckout = internalMutation({
+    args: {
+        orderId: v.id("orders"),
+        buyerId: v.id("users"),
+    },
+    handler: async (ctx, args) => {
+        const order = await ctx.db.get(args.orderId);
+        if (!order || order.buyerId !== args.buyerId) {
+            throw new Error("Order not found");
+        }
+        if (order.paymentMethod === "COD") {
+            throw new Error("Cash on Delivery orders do not require online payment");
+        }
+        if (order.status !== "PENDING") {
+            throw new Error("Order can no longer accept payment");
+        }
+        if (order.paymentStatus === "PAID") {
+            throw new Error("Order is already paid");
+        }
+        if (order.reservationExpiresAt && order.reservationExpiresAt <= Date.now()) {
+            throw new Error("Payment window has expired for this order");
+        }
+
+        await applyOrderInventoryIfNeeded(ctx, order);
+
+        if (order.paymentStatus !== "PENDING" || !order.reservationExpiresAt) {
+            await ctx.db.patch(order._id, {
+                paymentStatus: "PENDING",
+                reservationExpiresAt: getReservationExpiryTimestamp(order.paymentMethod),
+            });
+        }
+    },
+});
+
 export const createPaymentRecord = internalMutation({
     args: {
         orderId: v.id("orders"),
@@ -223,6 +283,14 @@ export const createPaymentRecord = internalMutation({
         checkoutSessionId: v.string(),
     },
     handler: async (ctx, args) => {
+        const existing = await ctx.db
+            .query("payments")
+            .withIndex("by_checkoutSessionId", (q) => q.eq("checkoutSessionId", args.checkoutSessionId))
+            .unique();
+        if (existing) {
+            return existing._id;
+        }
+
         return await ctx.db.insert("payments", {
             orderId: args.orderId,
             amount: args.amount,
@@ -310,5 +378,138 @@ export const updatePaymentStatus = internalMutation({
         }
 
         return payment._id;
+    },
+});
+
+function readPayMongoEvent(payload: any) {
+    const event = payload?.data;
+    const eventType = event?.type ?? event?.attributes?.type;
+    const eventData = event?.data ?? event?.attributes?.data;
+    const eventId = event?.id ?? `${eventType}:${eventData?.id ?? "unknown"}`;
+    const livemode = event?.livemode ?? event?.attributes?.livemode ?? eventData?.attributes?.livemode;
+
+    return { event, eventType, eventData, eventId, livemode };
+}
+
+function expectedPayMongoLivemode() {
+    const raw = process.env.PAYMONGO_EXPECT_LIVEMODE ?? process.env.PAYMONGO_LIVEMODE;
+    if (raw === undefined) return undefined;
+    return raw === "true" || raw === "live" || raw === "1";
+}
+
+export const enqueueWebhookEvent = internalMutation({
+    args: { payload: v.any() },
+    handler: async (ctx, args) => {
+        const { eventType, eventId, livemode } = readPayMongoEvent(args.payload);
+        if (!eventType || !eventId) {
+            throw new Error("Invalid PayMongo webhook payload");
+        }
+
+        const existing = await ctx.db
+            .query("webhook_events")
+            .withIndex("by_provider_eventId", (q) => q.eq("provider", "paymongo").eq("eventId", eventId))
+            .unique();
+
+        if (existing && existing.status !== "FAILED") {
+            return { duplicate: true };
+        }
+
+        const expectedLivemode = expectedPayMongoLivemode();
+        const livemodeMismatch = typeof expectedLivemode === "boolean" && typeof livemode === "boolean" && livemode !== expectedLivemode;
+        const webhookEventId = existing?._id ?? await ctx.db.insert("webhook_events", {
+            provider: "paymongo",
+            eventId,
+            eventType,
+            livemode,
+            payload: args.payload,
+            status: livemodeMismatch ? "PROCESSED" : "QUEUED",
+            ...(livemodeMismatch ? { processedAt: Date.now(), error: "Ignored due to livemode mismatch" } : {}),
+        });
+
+        if (existing?.status === "FAILED") {
+            await ctx.db.patch(existing._id, {
+                payload: args.payload,
+                status: livemodeMismatch ? "PROCESSED" : "QUEUED",
+                processedAt: livemodeMismatch ? Date.now() : undefined,
+                error: livemodeMismatch ? "Ignored due to livemode mismatch" : undefined,
+            });
+        }
+
+        if (livemodeMismatch) {
+            return { duplicate: false };
+        }
+
+        await ctx.scheduler.runAfter(0, internal.paymongo.processWebhookEvent, { webhookEventId });
+        return { duplicate: false };
+    },
+});
+
+export const processWebhookEvent = internalMutation({
+    args: { webhookEventId: v.id("webhook_events") },
+    handler: async (ctx, args) => {
+        const record = await ctx.db.get(args.webhookEventId);
+        if (!record || record.provider !== "paymongo") return;
+        if (record.status === "PROCESSED") return;
+
+        try {
+            const { eventType, eventData } = readPayMongoEvent(record.payload);
+            const attributes = eventData?.attributes ?? {};
+
+            switch (eventType) {
+                case "checkout_session.payment.paid": {
+                    const checkoutSessionId = eventData.id;
+                    const paymentIntent = attributes.payment_intent;
+                    const paidPayment = Array.isArray(attributes.payments)
+                        ? attributes.payments.find((payment: any) => payment?.attributes?.status === "paid") ?? attributes.payments[0]
+                        : undefined;
+
+                    await ctx.runMutation(internal.paymongo.updatePaymentStatus, {
+                        checkoutSessionId,
+                        paymentIntentId: paymentIntent?.id,
+                        status: "PAID",
+                        paymentMethod: paidPayment?.attributes?.source?.type ?? paymentIntent?.attributes?.payment_method_type,
+                        transactionId: paidPayment?.id ?? paymentIntent?.id,
+                        paidAt: Date.now(),
+                    });
+                    break;
+                }
+
+                case "payment.paid": {
+                    const paymentIntentId = attributes.payment_intent_id;
+                    await ctx.runMutation(internal.paymongo.updatePaymentStatus, {
+                        paymentIntentId,
+                        status: "PAID",
+                        paymentMethod: attributes.source?.type,
+                        transactionId: eventData.id,
+                        paidAt: Date.now(),
+                    });
+                    break;
+                }
+
+                case "payment.failed": {
+                    const paymentIntentId = attributes.payment_intent_id;
+                    await ctx.runMutation(internal.paymongo.updatePaymentStatus, {
+                        paymentIntentId,
+                        status: "FAILED",
+                    });
+                    break;
+                }
+
+                default:
+                    break;
+            }
+
+            await ctx.db.patch(record._id, {
+                status: "PROCESSED",
+                processedAt: Date.now(),
+                error: undefined,
+            });
+        } catch (error) {
+            await ctx.db.patch(record._id, {
+                status: "FAILED",
+                error: error instanceof Error ? error.message : "Unknown webhook processing error",
+            });
+            throw error;
+        }
     },
 });

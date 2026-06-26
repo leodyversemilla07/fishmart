@@ -150,7 +150,7 @@ export default function SellScreen() {
             const uploadedUrls: string[] = [];
 
             for (const img of images) {
-                const url = await uploadImage(img.uri, img.base64, 'products', 'listings');
+                const url = await uploadImage(img.uri, img.base64, 'products', 'listings', sessionToken);
                 uploadedUrls.push(url);
             }
 
