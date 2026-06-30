@@ -66,6 +66,7 @@ export default function TabLayout() {
                 name="index"
                 options={{
                     title: 'Home',
+                    tabBarAccessibilityLabel: 'Home tab',
                     tabBarIcon: ({ color, size }) => <LucideHome size={size} color={color} />,
                 }}
             />
@@ -73,6 +74,7 @@ export default function TabLayout() {
                 name="explore"
                 options={{
                     title: 'Explore',
+                    tabBarAccessibilityLabel: 'Explore tab',
                     tabBarIcon: ({ color, size }) => <LucideSearch size={size} color={color} />,
                 }}
             />
@@ -80,6 +82,7 @@ export default function TabLayout() {
                 name="sell"
                 options={{
                     title: 'Sell',
+                    tabBarAccessibilityLabel: 'Sell tab',
                     tabBarIcon: ({ color, size }) => <LucidePlusCircle size={size} color={color} />,
                 }}
             />
@@ -87,6 +90,7 @@ export default function TabLayout() {
                 name="messages"
                 options={{
                     title: 'Messages',
+                    tabBarAccessibilityLabel: 'Messages tab',
                     tabBarIcon: ({ color, size }) => <MessagesTabIcon color={color} size={size} />,
                 }}
             />
@@ -94,6 +98,7 @@ export default function TabLayout() {
                 name="profile"
                 options={{
                     title: 'Profile',
+                    tabBarAccessibilityLabel: 'Profile tab',
                     tabBarIcon: ({ color, size }) => <LucideUser size={size} color={color} />,
                 }}
             />
