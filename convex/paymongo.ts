@@ -3,6 +3,7 @@ import { ActionCtx, action, internalAction, internalMutation, internalQuery } fr
 import { internal } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
 import { applyOrderInventoryIfNeeded, buildOrderLineItems, getReservationExpiryTimestamp, revertOrderInventoryIfCommitted } from "./lib/orders";
+import { normalizePaymentMethod, toPayMongoPaymentMethod } from "./lib/payments";
 
 const PAYMONGO_API_URL = "https://api.paymongo.com/v2";
 
@@ -15,39 +16,6 @@ const getPayMongoSecretKey = () => {
 };
 
 const encodeCredentials = (secretKey: string) => btoa(`${secretKey}:`);
-
-function normalizePaymentMethod(paymentMethod: string | undefined) {
-    switch ((paymentMethod || "").toLowerCase()) {
-        case "gcash":
-            return "GCASH";
-        case "paymaya":
-        case "maya":
-            return "MAYA";
-        case "card":
-            return "CARD";
-        case "bank_transfer":
-            return "BANK_TRANSFER";
-        case "cod":
-            return "COD";
-        default:
-            return undefined;
-    }
-}
-
-function toPayMongoPaymentMethod(paymentMethod: "GCASH" | "MAYA" | "CARD" | "BANK_TRANSFER" | "COD") {
-    switch (paymentMethod) {
-        case "GCASH":
-            return "gcash";
-        case "MAYA":
-            return "paymaya";
-        case "CARD":
-            return "card";
-        case "BANK_TRANSFER":
-            return "bank_transfer";
-        default:
-            throw new Error(`Unsupported online payment method: ${paymentMethod}`);
-    }
-}
 
 const checkoutSessionArgs = {
     sessionToken: v.string(),

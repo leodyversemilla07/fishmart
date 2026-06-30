@@ -1,6 +1,7 @@
 import { httpRouter } from "convex/server";
 import { httpAction } from "./_generated/server";
 import { internal } from "./_generated/api";
+import { timingSafeEqual } from "./lib/crypto";
 
 const http = httpRouter();
 
@@ -17,16 +18,6 @@ async function hmacSha256(value: string, secret: string) {
     return Array.from(new Uint8Array(signature))
         .map((byte) => byte.toString(16).padStart(2, "0"))
         .join("");
-}
-
-function timingSafeEqual(a: string, b: string) {
-    let result = a.length ^ b.length;
-    const maxLength = Math.max(a.length, b.length);
-
-    for (let i = 0; i < maxLength; i += 1) {
-        result |= (a.charCodeAt(i) || 0) ^ (b.charCodeAt(i) || 0);
-    }
-    return result === 0;
 }
 
 async function verifyPayMongoSignature(rawBody: string, signatureHeader: string | null) {
