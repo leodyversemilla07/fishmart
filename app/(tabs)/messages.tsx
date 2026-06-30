@@ -58,12 +58,14 @@ export default function MessagesScreen() {
                 titleStyle={styles.conversationTitle}
                 descriptionStyle={styles.lastMessage}
                 style={styles.listItem}
+                accessibilityLabel={`Open conversation with ${name}`}
+                accessibilityRole="button"
             />
         );
     };
 
     return (
-        <View style={styles.container}>
+        <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
             <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
                 <Text variant="headlineMedium" style={styles.headerTitle}>Messages</Text>
             </View>
@@ -77,6 +79,7 @@ export default function MessagesScreen() {
                     style={styles.searchInput}
                     left={<TextInput.Icon icon={() => <LucideSearch size={20} color="#64748B" />} />}
                     outlineStyle={styles.searchOutline}
+                    accessibilityLabel="Search messages"
                 />
             </View>
 
@@ -90,6 +93,10 @@ export default function MessagesScreen() {
                     renderItem={renderConversationItem}
                     keyExtractor={item => item._id}
                     contentContainerStyle={styles.listContent}
+                    initialNumToRender={15}
+                    maxToRenderPerBatch={10}
+                    windowSize={5}
+                    removeClippedSubviews
                     ItemSeparatorComponent={() => <Divider style={styles.divider} />}
                     ListEmptyComponent={
                         <View style={styles.emptyContainer}>
