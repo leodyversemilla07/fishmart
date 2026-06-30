@@ -82,10 +82,19 @@ export default function ExploreScreen() {
     }
   }, [categoryIdFromSlug, params.category]);
 
+  // Filter States
+  const [filterVisible, setFilterVisible] = useState(false);
+  const [minPrice, setMinPrice] = useState('');
+  const [maxPrice, setMaxPrice] = useState('');
+  const [city, setCity] = useState('');
+  const [sortBy, setSortBy] = useState('newest');
+
   // Build query args dynamically
   const activeCategoryId = selectedCategory !== 'all'
-    ? selectedCategory 
+    ? selectedCategory
     : categoryIdFromSlug;
+  const minPriceNumber = minPrice.trim() ? Number.parseFloat(minPrice) : undefined;
+  const maxPriceNumber = maxPrice.trim() ? Number.parseFloat(maxPrice) : undefined;
 
   const {
     results: products,
@@ -97,16 +106,12 @@ export default function ExploreScreen() {
       search: searchQuery.trim() || undefined,
       status: "ACTIVE",
       categoryId: activeCategoryId,
+      minPrice: Number.isFinite(minPriceNumber) ? minPriceNumber : undefined,
+      maxPrice: Number.isFinite(maxPriceNumber) ? maxPriceNumber : undefined,
+      city: city.trim() || undefined,
     },
     { initialNumItems: 20 }
   );
-
-  // Filter States
-  const [filterVisible, setFilterVisible] = useState(false);
-  const [minPrice, setMinPrice] = useState('');
-  const [maxPrice, setMaxPrice] = useState('');
-  const [city, setCity] = useState('');
-  const [sortBy, setSortBy] = useState('newest');
 
   const loading = paginationStatus === 'LoadingFirstPage';
   const [refreshing, setRefreshing] = useState(false);
@@ -133,14 +138,8 @@ export default function ExploreScreen() {
     setFilterVisible(false);
   };
 
-  // Apply client-side filters (price, city) and sorting
-  const filteredProducts = (products || [])
-    .filter((p: Product) => {
-      if (minPrice && p.price < parseFloat(minPrice)) return false;
-      if (maxPrice && p.price > parseFloat(maxPrice)) return false;
-      if (city && !p.city.toLowerCase().includes(city.toLowerCase())) return false;
-      return true;
-    })
+  // Price and city filters run in Convex before pagination; sort the loaded page locally.
+  const filteredProducts = [...(products || [])]
     .sort((a: Product, b: Product) => {
       switch (sortBy) {
         case 'price_low':

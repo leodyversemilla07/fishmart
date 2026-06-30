@@ -126,6 +126,9 @@ export const listPaginated = query({
         sellerId: v.optional(v.id("users")),
         search: v.optional(v.string()),
         status: v.optional(v.union(v.literal("ACTIVE"), v.literal("INACTIVE"), v.literal("OUT_OF_STOCK"))),
+        minPrice: v.optional(v.number()),
+        maxPrice: v.optional(v.number()),
+        city: v.optional(v.string()),
         paginationOpts: paginationOptsValidator,
     },
     handler: async (ctx, args) => {
@@ -160,6 +163,19 @@ export const listPaginated = query({
                 .withIndex("by_status", (q) => q.eq("status", status));
         } else {
             productsQuery = ctx.db.query("products");
+        }
+
+        if (args.minPrice !== undefined) {
+            productsQuery = productsQuery.filter((q) => q.gte(q.field("price"), args.minPrice!));
+        }
+
+        if (args.maxPrice !== undefined) {
+            productsQuery = productsQuery.filter((q) => q.lte(q.field("price"), args.maxPrice!));
+        }
+
+        if (args.city?.trim()) {
+            const city = args.city.trim();
+            productsQuery = productsQuery.filter((q) => q.eq(q.field("city"), city));
         }
 
         const result = await productsQuery.order("desc").paginate(args.paginationOpts);
