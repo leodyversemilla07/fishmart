@@ -163,6 +163,8 @@ export default function ExploreScreen() {
         <TouchableOpacity
           style={[styles.filterButton, { backgroundColor: theme.colors.primaryContainer }]}
           onPress={() => setFilterVisible(true)}
+          accessibilityLabel="Open filters"
+          accessibilityRole="button"
         >
           <LucideFilter size={20} color={theme.colors.primary} />
         </TouchableOpacity>
@@ -174,6 +176,8 @@ export default function ExploreScreen() {
           onPress={() => setSelectedCategory('all')}
           mode="outlined"
           showSelectedCheck={false}
+          accessibilityLabel="Show all categories"
+          accessibilityRole="radio"
           style={[
             styles.categoryChip,
             selectedCategory === 'all' ? { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary } : { backgroundColor: 'white' }
@@ -192,6 +196,8 @@ export default function ExploreScreen() {
             onPress={() => setSelectedCategory(category._id)}
             mode="outlined"
             showSelectedCheck={false}
+            accessibilityLabel={`Filter by ${category.name}`}
+            accessibilityRole="radio"
             style={[
               styles.categoryChip,
               selectedCategory === category._id ? { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary } : { backgroundColor: 'white' }
@@ -248,7 +254,7 @@ export default function ExploreScreen() {
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
               <Text variant="titleLarge" style={styles.modalTitle}>Filters</Text>
-              <TouchableOpacity onPress={() => setFilterVisible(false)}>
+              <TouchableOpacity onPress={() => setFilterVisible(false)} accessibilityLabel="Close filters" accessibilityRole="button">
                 <LucideX size={24} color="#1E293B" />
               </TouchableOpacity>
             </View>
@@ -307,12 +313,13 @@ export default function ExploreScreen() {
                 value={city}
                 onChangeText={setCity}
                 style={styles.locationInput}
+                accessibilityLabel="Filter by city"
               />
             </ScrollView>
 
             <View style={[styles.modalFooter, { paddingBottom: insets.bottom + 10 }]}>
-              <Button mode="outlined" onPress={clearFilters} style={styles.footerBtn}>Clear All</Button>
-              <Button mode="contained" onPress={applyFilters} style={styles.footerBtn}>Apply Filters</Button>
+              <Button mode="outlined" onPress={clearFilters} style={styles.footerBtn} accessibilityLabel="Clear all filters">Clear All</Button>
+              <Button mode="contained" onPress={applyFilters} style={styles.footerBtn} accessibilityLabel="Apply filters">Apply Filters</Button>
             </View>
           </View>
         </View>
