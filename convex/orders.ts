@@ -10,7 +10,7 @@ import {
     SHIPPING_FEE,
 } from "./lib/orders";
 import { assertSeller, requireSessionUser } from "./lib/session";
-import { withoutSensitiveUserFields } from "./lib/users";
+import { toPublicUser } from "./lib/users";
 
 export const create = mutation({
     args: {
@@ -165,7 +165,7 @@ export const listIncomingOrders = query({
                 return {
                     ...order,
                     items: sellerItemsForOrder,
-                    buyer: withoutSensitiveUserFields(buyer),
+                    buyer: toPublicUser(buyer),
                     address,
                 };
             })
@@ -277,7 +277,7 @@ export const get = query({
             ...order,
             items: isSeller && !isBuyer ? items.filter((item) => item.sellerId === actor._id) : items,
             address,
-            buyer: withoutSensitiveUserFields(buyer),
+            buyer: toPublicUser(buyer),
         };
     },
 });

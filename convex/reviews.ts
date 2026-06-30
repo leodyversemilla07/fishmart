@@ -3,7 +3,7 @@ import { Doc, Id } from "./_generated/dataModel";
 import { MutationCtx, QueryCtx, mutation, query } from "./_generated/server";
 import { hasPurchasedProductForReview } from "./lib/reviews";
 import { requireSessionUser } from "./lib/session";
-import { SafeUser, withoutSensitiveUserFields } from "./lib/users";
+import { PublicUser, toPublicUser } from "./lib/users";
 
 // Helper to resolve URL
 const resolveUrl = async (ctx: QueryCtx | MutationCtx, url: string) => {
@@ -113,7 +113,7 @@ export const listByProduct = query({
                     resolvedImages = resolved.filter((image): image is string => Boolean(image));
                 }
 
-                const safeUser = withoutSensitiveUserFields(user);
+                const safeUser = toPublicUser(user);
                 const userWithResolvedAvatar = safeUser?.shopLogo
                     ? { ...safeUser, shopLogo: await resolveUrl(ctx, safeUser.shopLogo) || safeUser.shopLogo }
                     : safeUser;
@@ -136,7 +136,7 @@ export const listBySeller = query({
 
         const productIds = products.map(p => p._id);
 
-        let allReviews: (Doc<"reviews"> & { user: SafeUser | null; product: Doc<"products"> | undefined; images: string[] })[] = [];
+        let allReviews: (Doc<"reviews"> & { user: PublicUser | null; product: Doc<"products"> | undefined; images: string[] })[] = [];
         for (const productId of productIds) {
             const reviews = await ctx.db
                 .query("reviews")
@@ -153,7 +153,7 @@ export const listBySeller = query({
                     const resolved = await Promise.all(review.images.map(img => resolveUrl(ctx, img)));
                     resolvedImages = resolved.filter((image): image is string => Boolean(image));
                 }
-                const safeUser = withoutSensitiveUserFields(user);
+                const safeUser = toPublicUser(user);
                 const userWithResolvedAvatar = safeUser?.shopLogo
                     ? { ...safeUser, shopLogo: await resolveUrl(ctx, safeUser.shopLogo) || safeUser.shopLogo }
                     : safeUser;

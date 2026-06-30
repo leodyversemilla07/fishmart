@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { MutationCtx, QueryCtx, internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { assertSameUser, requireSessionUser } from "./lib/session";
-import { withoutSensitiveUserFields } from "./lib/users";
+import { toPublicUser, withoutSensitiveUserFields } from "./lib/users";
 
 // Helper to resolve URL
 const resolveUrl = async (ctx: QueryCtx | MutationCtx, url: string) => {
@@ -353,11 +353,11 @@ export const getPublicProfile = query({
 
         const recentReviews = recentReviewBase.map((review) => ({
             ...review,
-            user: withoutSensitiveUserFields(reviewerMap.get(review.userId) || null),
+            user: toPublicUser(reviewerMap.get(review.userId) || null),
         }));
 
         return {
-            ...withoutSensitiveUserFields(user),
+            ...toPublicUser(user),
             shopLogo: resolvedShopLogo || user.shopLogo,
             products: productsWithImages,
             averageRating: reviewCount > 0 ? totalRating / reviewCount : null,
