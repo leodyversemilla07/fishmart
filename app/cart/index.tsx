@@ -20,10 +20,10 @@ export default function CartScreen() {
 
     if (items.length === 0) {
         return (
-            <View style={[styles.container, styles.emptyContainer]}>
+            <View style={[styles.container, styles.emptyContainer, { backgroundColor: theme.colors.background }]}>
                 <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
-                    <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-                        <LucideArrowLeft size={24} color="black" />
+                    <TouchableOpacity onPress={() => router.back()} style={styles.backButton} accessibilityLabel="Go back" accessibilityRole="button">
+                        <LucideArrowLeft size={24} color={theme.colors.onSurface} />
                     </TouchableOpacity>
                     <Text variant="titleLarge" style={styles.headerTitle}>My Cart</Text>
                     <View style={{ width: 40 }} />
@@ -39,6 +39,7 @@ export default function CartScreen() {
                         mode="contained"
                         onPress={() => router.push('/(tabs)/explore')}
                         style={styles.startShoppingButton}
+                        accessibilityLabel="Start browsing products"
                     >
                         Start Shopping
                     </Button>
@@ -59,7 +60,7 @@ export default function CartScreen() {
                     <Text variant="titleMedium" numberOfLines={1} style={styles.itemName}>
                         {item.name}
                     </Text>
-                    <TouchableOpacity onPress={() => removeItem(item.id)}>
+                    <TouchableOpacity onPress={() => removeItem(item.id)} accessibilityLabel={`Remove ${item.name} from cart`} accessibilityRole="button">
                         <LucideTrash2 size={20} color={theme.colors.error} />
                     </TouchableOpacity>
                 </View>
@@ -77,15 +78,19 @@ export default function CartScreen() {
                         <TouchableOpacity
                             onPress={() => updateQuantity(item.id, item.quantity - 1)}
                             style={styles.quantityBtn}
+                            accessibilityLabel={`Decrease quantity of ${item.name}`}
+                            accessibilityRole="button"
                         >
-                            <LucideMinus size={16} color="black" />
+                            <LucideMinus size={16} color={theme.colors.onSurface} />
                         </TouchableOpacity>
                         <Text style={styles.quantityText}>{item.quantity}</Text>
                         <TouchableOpacity
                             onPress={() => updateQuantity(item.id, item.quantity + 1)}
                             style={styles.quantityBtn}
+                            accessibilityLabel={`Increase quantity of ${item.name}`}
+                            accessibilityRole="button"
                         >
-                            <LucidePlus size={16} color="black" />
+                            <LucidePlus size={16} color={theme.colors.onSurface} />
                         </TouchableOpacity>
                     </View>
                 </View>
@@ -94,11 +99,11 @@ export default function CartScreen() {
     );
 
     return (
-        <View style={styles.container}>
+        <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
             {/* Header */}
             <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
-                <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-                    <LucideArrowLeft size={24} color="black" />
+                <TouchableOpacity onPress={() => router.back()} style={styles.backButton} accessibilityLabel="Go back" accessibilityRole="button">
+                    <LucideArrowLeft size={24} color={theme.colors.onSurface} />
                 </TouchableOpacity>
                 <Text variant="titleLarge" style={styles.headerTitle}>My Cart ({totalItems()})</Text>
                 <View style={{ width: 40 }} />
@@ -113,7 +118,7 @@ export default function CartScreen() {
             />
 
             {/* Bottom Summary */}
-            <View style={[styles.footer, { paddingBottom: insets.bottom + 16 }]}>
+            <View style={[styles.footer, { paddingBottom: insets.bottom + 16, backgroundColor: theme.colors.surface }]}>
                 <View style={styles.summaryRow}>
                     <Text variant="bodyLarge">Subtotal</Text>
                     <Text variant="titleLarge" style={styles.totalAmount}>
@@ -129,6 +134,7 @@ export default function CartScreen() {
                     style={styles.checkoutButton}
                     contentStyle={styles.checkoutBtnContent}
                     onPress={() => router.push('/cart/checkout')}
+                    accessibilityLabel="Proceed to checkout"
                 >
                     Proceed to Checkout
                 </Button>
