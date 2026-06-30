@@ -150,11 +150,11 @@ export default function CheckoutScreen() {
     }
 
     return (
-        <View style={styles.container}>
+        <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
             {/* Header */}
-            <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
-                <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-                    <LucideArrowLeft size={24} color="black" />
+            <View style={[styles.header, { paddingTop: insets.top + 10, backgroundColor: theme.colors.surface }]}>
+                <TouchableOpacity onPress={() => router.back()} style={styles.backButton} accessibilityLabel="Go back" accessibilityRole="button">
+                    <LucideArrowLeft size={24} color={theme.colors.onSurface} />
                 </TouchableOpacity>
                 <Text variant="titleLarge" style={styles.headerTitle}>Checkout</Text>
                 <View style={{ width: 40 }} />
@@ -282,7 +282,7 @@ export default function CheckoutScreen() {
             </ScrollView>
 
             {/* Place Order Button */}
-            <View style={[styles.footer, { paddingBottom: insets.bottom + 16 }]}>
+            <View style={[styles.footer, { paddingBottom: insets.bottom + 16, backgroundColor: theme.colors.surface }]}>
                 <Button
                     mode="contained"
                     onPress={handlePlaceOrder}
@@ -290,6 +290,7 @@ export default function CheckoutScreen() {
                     disabled={submitting || !selectedAddress}
                     style={styles.placeOrderButton}
                     contentStyle={styles.placeOrderBtnContent}
+                    accessibilityLabel={selectedPaymentConfig?.requiresOnlinePayment ? 'Proceed to payment' : 'Place order'}
                 >
                     {selectedPaymentConfig?.requiresOnlinePayment ? 'Proceed to Payment' : 'Place Order'}
                 </Button>
