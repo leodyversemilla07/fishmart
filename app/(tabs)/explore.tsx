@@ -87,7 +87,7 @@ export default function ExploreScreen() {
   const [minPrice, setMinPrice] = useState('');
   const [maxPrice, setMaxPrice] = useState('');
   const [city, setCity] = useState('');
-  const [sortBy, setSortBy] = useState('newest');
+  const [sortBy, setSortBy] = useState<'newest' | 'price_low' | 'price_high'>('newest');
 
   // Build query args dynamically
   const activeCategoryId = selectedCategory !== 'all'
@@ -109,6 +109,7 @@ export default function ExploreScreen() {
       minPrice: Number.isFinite(minPriceNumber) ? minPriceNumber : undefined,
       maxPrice: Number.isFinite(maxPriceNumber) ? maxPriceNumber : undefined,
       city: city.trim() || undefined,
+      sortBy: sortBy || undefined,
     },
     { initialNumItems: 20 }
   );
@@ -134,23 +135,12 @@ export default function ExploreScreen() {
     setMinPrice('');
     setMaxPrice('');
     setCity('');
-    setSortBy('newest');
+    setSortBy('newest' as const);
     setFilterVisible(false);
   };
 
-  // Price and city filters run in Convex before pagination; sort the loaded page locally.
-  const filteredProducts = [...(products || [])]
-    .sort((a: Product, b: Product) => {
-      switch (sortBy) {
-        case 'price_low':
-          return a.price - b.price;
-        case 'price_high':
-          return b.price - a.price;
-        case 'newest':
-        default:
-          return (b._creationTime || 0) - (a._creationTime || 0);
-      }
-    });
+  // Sort is now handled server-side; just spread for stable reference.
+  const filteredProducts = [...(products || [])];
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -270,7 +260,7 @@ export default function ExploreScreen() {
               bounces={false}
             >
               <Text variant="titleMedium" style={styles.filterGroupTitle}>Sort By</Text>
-              <RadioButton.Group onValueChange={value => setSortBy(value)} value={sortBy}>
+              <RadioButton.Group onValueChange={value => setSortBy(value as 'newest' | 'price_low' | 'price_high')} value={sortBy}>
                 <View style={styles.radioRow}>
                   <RadioButton value="newest" />
                   <Text>Newest First</Text>

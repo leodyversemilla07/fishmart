@@ -80,7 +80,9 @@ export default defineSchema({
         .index("by_slug", ["slug"])
         .index("by_status", ["status"])
         .index("by_status_category", ["status", "categoryId"])
-        .index("by_seller_status", ["sellerId", "status"]),
+        .index("by_seller_status", ["sellerId", "status"])
+        .index("by_status_price", ["status", "price"])
+        .index("by_status_category_price", ["status", "categoryId", "price"]),
 
     product_images: defineTable({
         productId: v.id("products"),

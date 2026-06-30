@@ -129,59 +129,65 @@ export const listPaginated = query({
         minPrice: v.optional(v.number()),
         maxPrice: v.optional(v.number()),
         city: v.optional(v.string()),
+        sortBy: v.optional(v.union(v.literal("newest"), v.literal("price_low"), v.literal("price_high"))),
         paginationOpts: paginationOptsValidator,
     },
     handler: async (ctx, args) => {
+        const sortBy = args.sortBy ?? "newest";
+        const usePriceSort = sortBy === "price_low" || sortBy === "price_high";
+        const orderDir = sortBy === "price_low" ? "asc" : "desc";
         let productsQuery;
 
+        // Select index based on filters and sort preference
         if (args.sellerId && args.status) {
-            const sellerId = args.sellerId;
-            const status = args.status;
             productsQuery = ctx.db
                 .query("products")
-                .withIndex("by_seller_status", (q) => q.eq("sellerId", sellerId).eq("status", status));
+                .withIndex("by_seller_status", (q) => q.eq("sellerId", args.sellerId!).eq("status", args.status!));
+        } else if (args.status && args.categoryId && usePriceSort) {
+            productsQuery = ctx.db
+                .query("products")
+                .withIndex("by_status_category_price", (q) => q.eq("status", args.status!).eq("categoryId", args.categoryId!));
+        } else if (args.status && usePriceSort) {
+            productsQuery = ctx.db
+                .query("products")
+                .withIndex("by_status_price", (q) => q.eq("status", args.status!));
         } else if (args.status && args.categoryId) {
-            const status = args.status;
-            const categoryId = args.categoryId;
             productsQuery = ctx.db
                 .query("products")
-                .withIndex("by_status_category", (q) => q.eq("status", status).eq("categoryId", categoryId));
+                .withIndex("by_status_category", (q) => q.eq("status", args.status!).eq("categoryId", args.categoryId!));
         } else if (args.sellerId) {
-            const sellerId = args.sellerId;
             productsQuery = ctx.db
                 .query("products")
-                .withIndex("by_seller", (q) => q.eq("sellerId", sellerId));
+                .withIndex("by_seller", (q) => q.eq("sellerId", args.sellerId!));
         } else if (args.categoryId) {
-            const categoryId = args.categoryId;
             productsQuery = ctx.db
                 .query("products")
-                .withIndex("by_category", (q) => q.eq("categoryId", categoryId));
+                .withIndex("by_category", (q) => q.eq("categoryId", args.categoryId!));
         } else if (args.status) {
-            const status = args.status;
             productsQuery = ctx.db
                 .query("products")
-                .withIndex("by_status", (q) => q.eq("status", status));
+                .withIndex("by_status", (q) => q.eq("status", args.status!));
         } else {
             productsQuery = ctx.db.query("products");
         }
 
+        // Apply server-side filters that Convex supports
         if (args.minPrice !== undefined) {
             productsQuery = productsQuery.filter((q) => q.gte(q.field("price"), args.minPrice!));
         }
-
         if (args.maxPrice !== undefined) {
             productsQuery = productsQuery.filter((q) => q.lte(q.field("price"), args.maxPrice!));
         }
-
-        if (args.city?.trim()) {
-            const city = args.city.trim();
-            productsQuery = productsQuery.filter((q) => q.eq(q.field("city"), city));
+        const cityFilter = args.city?.trim();
+        if (cityFilter) {
+            productsQuery = productsQuery.filter((q) => q.eq(q.field("city"), cityFilter));
         }
 
-        const result = await productsQuery.order("desc").paginate(args.paginationOpts);
+        const result = await productsQuery.order(orderDir).paginate(args.paginationOpts);
         let products = result.page;
 
-        if (args.status && !args.sellerId && !args.categoryId) {
+        // Client-side post-filters for unsupported query patterns
+        if (args.status && !args.sellerId && !args.categoryId && !usePriceSort) {
             products = products.filter((product) => product.status === args.status);
         }
         if (args.categoryId && !args.status) {
