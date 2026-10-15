@@ -24,6 +24,13 @@ type RegisteredPushToken = {
     token: string;
 };
 
+let lastRegisteredPushToken: string | null = null;
+
+/** Returns the most recently registered Expo push token for this device, if any. */
+export function getLastRegisteredPushToken() {
+    return lastRegisteredPushToken;
+}
+
 type FishmartNotificationData = {
     orderId?: string;
     productId?: string;
@@ -150,6 +157,7 @@ export function usePushNotifications() {
                 sessionToken: token,
                 token: tokenData.data,
             };
+            lastRegisteredPushToken = tokenData.data;
         }
 
         registerDevice().catch((error) => {
@@ -165,6 +173,9 @@ export function usePushNotifications() {
             if (!registration || registration.sessionToken !== token) return;
 
             registeredTokenRef.current = null;
+            if (lastRegisteredPushToken === registration.token) {
+                lastRegisteredPushToken = null;
+            }
             convexClient.mutation(api.push.unregisterPushToken, registration).catch((error) => {
                 if (process.env.NODE_ENV === 'development') {
                     console.error('[Push] Token unregister failed:', error);

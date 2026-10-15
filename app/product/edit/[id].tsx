@@ -8,7 +8,7 @@ import { Image as ExpoImage } from 'expo-image';
 import type { ImagePickerAsset } from 'expo-image-picker';
 import { router, useLocalSearchParams } from 'expo-router';
 import { LucideArrowLeft, LucideCamera, LucideX } from 'lucide-react-native';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { Button, HelperText, Text, TextInput, useTheme } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -35,6 +35,7 @@ export default function EditProductScreen() {
 
     // Convex Query
     const product = useQuery(api.products.get, productId ? { id: productId } : "skip");
+    const hydratedProductRef = useRef<Id<"products"> | null>(null);
     const categoriesList = useQuery(api.categories.list) || [];
     const updateProductMutation = useMutation(api.products.update);
 
@@ -53,24 +54,32 @@ export default function EditProductScreen() {
     const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
-        if (product) {
-            setName(product.name || '');
-            setDescription(product.description || '');
-            setPrice(product.price?.toString() || '');
-            setStock(product.stock?.toString() || '1');
-            setCity(product.city || '');
-            setProvince(product.province || '');
-            setCategory(product.categoryId);
-
-            if (product.images && product.images.length > 0) {
-                setImages(product.images.map((img: { _id: string; imageUrl: string }) => ({
-                    id: img._id,
-                    imageUrl: img.imageUrl,
-                    isExisting: true,
-                })));
-            }
+        if (product === undefined) return;
+        if (product === null) {
             setLoading(false);
+            return;
         }
+        // Hydrate the form once per product so live query updates cannot
+        // overwrite in-progress edits.
+        if (hydratedProductRef.current === product._id) return;
+        hydratedProductRef.current = product._id;
+
+        setName(product.name || '');
+        setDescription(product.description || '');
+        setPrice(product.price?.toString() || '');
+        setStock(product.stock?.toString() || '1');
+        setCity(product.city || '');
+        setProvince(product.province || '');
+        setCategory(product.categoryId);
+
+        if (product.images && product.images.length > 0) {
+            setImages(product.images.map((img: { _id: string; imageUrl: string }) => ({
+                id: img._id,
+                imageUrl: img.imageUrl,
+                isExisting: true,
+            })));
+        }
+        setLoading(false);
     }, [product]);
 
     const handlePickImages = async () => {
@@ -100,6 +109,14 @@ export default function EditProductScreen() {
             return;
         }
 
+        const parsedPrice = Number.parseFloat(price);
+        if (!Number.isFinite(parsedPrice) || parsedPrice < 0) {
+            setError('Please enter a valid price');
+            return;
+        }
+        const parsedStock = Number.parseInt(stock, 10);
+        const stockValue = Number.isFinite(parsedStock) && parsedStock >= 0 ? parsedStock : 1;
+
         setSaving(true);
         setError(null);
 
@@ -125,8 +142,8 @@ export default function EditProductScreen() {
                 id: productId,
                 name: name.trim(),
                 description: description.trim(),
-                price: parseFloat(price),
-                stock: parseInt(stock) || 1,
+                price: parsedPrice,
+                stock: stockValue,
                 categoryId: category,
                 city: city.trim(),
                 province: province.trim(),
@@ -146,6 +163,19 @@ export default function EditProductScreen() {
         return (
             <View style={[styles.container, styles.loadingContainer]}>
                 <ActivityIndicator size="large" color={theme.colors.primary} />
+            </View>
+        );
+    }
+
+    if (product === null) {
+        return (
+            <View style={[styles.container, styles.loadingContainer]}>
+                <Text variant="titleMedium" style={{ marginBottom: 16, color: '#64748B' }}>
+                    This product no longer exists.
+                </Text>
+                <Button mode="contained" onPress={() => router.back()}>
+                    Go Back
+                </Button>
             </View>
         );
     }

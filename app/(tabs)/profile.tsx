@@ -1,4 +1,5 @@
 import { api } from '@/convex/_generated/api';
+import { getLastRegisteredPushToken } from '@/hooks/use-push-notifications';
 import { useAuthStore } from '@/store/authStore';
 import { useAction, useQuery } from 'convex/react';
 import { router } from 'expo-router';
@@ -19,7 +20,10 @@ export default function ProfileScreen() {
     const handleSignOut = async () => {
         if (sessionToken) {
             try {
-                await signOut({ sessionToken });
+                await signOut({
+                    sessionToken,
+                    pushToken: getLastRegisteredPushToken() ?? undefined,
+                });
             } catch (error) {
                 console.error('Failed to revoke session:', error);
             }

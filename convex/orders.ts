@@ -1,7 +1,9 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
+import { Doc } from "./_generated/dataModel";
 import { action, internalMutation, MutationCtx, mutation, query } from "./_generated/server";
 import {
+    aggregateOrderQuantities,
     applyOrderInventoryIfNeeded,
     assertOrderInventoryAvailable,
     generateOrderNumber,
@@ -11,6 +13,16 @@ import {
 } from "./lib/orders";
 import { assertSeller, requireSessionUser } from "./lib/session";
 import { toPublicUser } from "./lib/users";
+
+const ALLOWED_STATUS_TRANSITIONS: Record<Doc<"orders">["status"], Doc<"orders">["status"][]> = {
+    PENDING: ["CONFIRMED", "CANCELLED"],
+    CONFIRMED: ["PROCESSING", "SHIPPED", "CANCELLED"],
+    PROCESSING: ["SHIPPED", "CANCELLED"],
+    SHIPPED: ["DELIVERED"],
+    DELIVERED: [],
+    CANCELLED: [],
+    REFUNDED: [],
+};
 
 export const create = mutation({
     args: {
@@ -34,12 +46,22 @@ export const create = mutation({
 
         await assertOrderInventoryAvailable(ctx, args.items);
 
+        // Aggregate per product so duplicate cart lines cannot create multiple
+        // order_items rows or bypass stock checks.
+        const quantities = aggregateOrderQuantities(args.items);
+
         let subtotal = 0;
         const lineItems = [];
-        for (const item of args.items) {
-            const product = await ctx.db.get(item.productId);
+        for (const [productId, quantity] of quantities) {
+            const product = await ctx.db.get(productId);
             if (!product) {
                 throw new Error("Product not found");
+            }
+            if (product.sellerId === buyer._id) {
+                throw new Error("You cannot order your own product");
+            }
+            if (!Number.isFinite(product.price) || product.price < 0) {
+                throw new Error(`Invalid price for ${product.name}`);
             }
 
             const primaryImage = await ctx.db
@@ -47,10 +69,10 @@ export const create = mutation({
                 .withIndex("by_product", (q) => q.eq("productId", product._id))
                 .first();
 
-            subtotal += product.price * item.quantity;
+            subtotal += product.price * quantity;
             lineItems.push({
                 product,
-                quantity: item.quantity,
+                quantity,
                 productImage: primaryImage?.imageUrl,
             });
         }
@@ -204,6 +226,10 @@ export const updateStatus = mutation({
             throw new Error("Order is awaiting payment confirmation");
         }
 
+        if (!ALLOWED_STATUS_TRANSITIONS[order.status].includes(args.status)) {
+            throw new Error(`Cannot change order status from ${order.status} to ${args.status}`);
+        }
+
         const updates = {
             status: args.status,
             ...(args.status === "CONFIRMED" ? { confirmedAt: Date.now(), reservationExpiresAt: undefined } : {}),
@@ -279,6 +305,32 @@ export const get = query({
             address,
             buyer: toPublicUser(buyer),
         };
+    },
+});
+
+export const cancel = mutation({
+    args: { sessionToken: v.string(), orderId: v.id("orders") },
+    handler: async (ctx, args) => {
+        const buyer = await requireSessionUser(ctx, args.sessionToken);
+        const order = await ctx.db.get(args.orderId);
+        if (!order || order.buyerId !== buyer._id) {
+            throw new Error("Order not found");
+        }
+        if (order.status !== "PENDING") {
+            throw new Error("Only pending orders can be cancelled");
+        }
+        if (order.paymentStatus === "PAID") {
+            throw new Error("Paid orders cannot be cancelled here; contact the seller");
+        }
+
+        await revertOrderInventoryIfCommitted(ctx, order);
+        await ctx.db.patch(order._id, {
+            status: "CANCELLED",
+            cancelledAt: Date.now(),
+            reservationExpiresAt: undefined,
+        });
+
+        return await ctx.db.get(order._id);
     },
 });
 

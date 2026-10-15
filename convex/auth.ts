@@ -3,12 +3,57 @@ import { internal } from "./_generated/api";
 import { Doc, Id } from "./_generated/dataModel";
 import { action, internalMutation, internalQuery } from "./_generated/server";
 import { generateSessionToken, getSessionRecord, hashSessionToken, SESSION_DURATION_MS } from "./lib/session";
+import { normalizeEmail } from "./users";
 
 const SALT_LENGTH = 16;
 const PBKDF2_ITERATIONS = 210_000;
 const PBKDF2_HASH_BITS = 256;
 const PASSWORD_RESET_TOKEN_TTL_MS = 1000 * 60 * 15;
 const DEFAULT_PASSWORD_RESET_URL_BASE = "fishmart://forgot-password";
+const MIN_PASSWORD_LENGTH = 8;
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const SIGNIN_RATE_LIMIT = { maxAttempts: 10, windowMs: 1000 * 60 * 15 };
+const FORGOT_PASSWORD_RATE_LIMIT = { maxAttempts: 3, windowMs: 1000 * 60 * 15 };
+
+export const consumeAuthAttempt = internalMutation({
+    args: { key: v.string(), maxAttempts: v.number(), windowMs: v.number() },
+    handler: async (ctx, args) => {
+        const now = Date.now();
+        const existing = await ctx.db
+            .query("auth_rate_limits")
+            .withIndex("by_key", (q) => q.eq("key", args.key))
+            .unique();
+
+        if (!existing || now - existing.windowStart >= args.windowMs) {
+            if (existing) {
+                await ctx.db.patch(existing._id, { windowStart: now, count: 1 });
+            } else {
+                await ctx.db.insert("auth_rate_limits", { key: args.key, windowStart: now, count: 1 });
+            }
+            return { allowed: true, retryAfterMs: 0 };
+        }
+
+        if (existing.count >= args.maxAttempts) {
+            return { allowed: false, retryAfterMs: existing.windowStart + args.windowMs - now };
+        }
+
+        await ctx.db.patch(existing._id, { count: existing.count + 1 });
+        return { allowed: true, retryAfterMs: 0 };
+    },
+});
+
+export const clearAuthAttempts = internalMutation({
+    args: { key: v.string() },
+    handler: async (ctx, args) => {
+        const existing = await ctx.db
+            .query("auth_rate_limits")
+            .withIndex("by_key", (q) => q.eq("key", args.key))
+            .unique();
+        if (existing) {
+            await ctx.db.delete(existing._id);
+        }
+    },
+});
 
 function bytesToHex(bytes: Uint8Array): string {
     return Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join("");
@@ -157,7 +202,17 @@ async function verifyPassword(password: string, storedHash: string, salt: string
 export const signIn = action({
     args: { email: v.string(), password: v.string() },
     handler: async (ctx, args): Promise<{ error: string } | { userId: Id<"users">, user: Omit<Doc<"users">, "password" | "passwordSalt">, sessionToken: string }> => {
-        const user: Doc<"users"> | null = await ctx.runQuery(internal.users.getUserByEmail, { email: args.email });
+        const email = normalizeEmail(args.email);
+        const rateLimitKey = `signin:${email}`;
+        const attempt = await ctx.runMutation(internal.auth.consumeAuthAttempt, {
+            key: rateLimitKey,
+            ...SIGNIN_RATE_LIMIT,
+        });
+        if (!attempt.allowed) {
+            return { error: "Too many sign-in attempts. Please try again later." };
+        }
+
+        const user: Doc<"users"> | null = await ctx.runQuery(internal.users.getUserByEmail, { email });
 
         if (!user || !user.password || !user.isActive) {
             return { error: "Invalid email or password" };
@@ -167,6 +222,8 @@ export const signIn = action({
         if (!isValid) {
             return { error: "Invalid email or password" };
         }
+
+        await ctx.runMutation(internal.auth.clearAuthAttempts, { key: rateLimitKey });
 
         const sessionToken = generateSessionToken();
         await ctx.runMutation(internal.auth.createSession, {
@@ -189,7 +246,15 @@ export const signUp = action({
         role: v.union(v.literal("BUYER"), v.literal("SELLER")),
     },
     handler: async (ctx, args): Promise<{ error: string } | { userId: Id<"users"> }> => {
-        const existing = await ctx.runQuery(internal.users.getUserByEmail, { email: args.email });
+        const email = normalizeEmail(args.email);
+        if (!EMAIL_PATTERN.test(email)) {
+            return { error: "Please enter a valid email address" };
+        }
+        if (args.password.length < MIN_PASSWORD_LENGTH) {
+            return { error: `Password must be at least ${MIN_PASSWORD_LENGTH} characters` };
+        }
+
+        const existing = await ctx.runQuery(internal.users.getUserByEmail, { email });
         if (existing) {
             return { error: "Email already in use" };
         }
@@ -198,7 +263,7 @@ export const signUp = action({
         const hashedPassword = await hashPasswordPbkdf2(args.password, salt);
 
         const userId = await ctx.runMutation(internal.users.createUser, {
-            email: args.email,
+            email,
             password: hashedPassword,
             passwordSalt: salt,
             firstName: args.firstName,
@@ -212,11 +277,12 @@ export const signUp = action({
 });
 
 export const signOut = action({
-    args: { sessionToken: v.string() },
+    args: { sessionToken: v.string(), pushToken: v.optional(v.string()) },
     handler: async (ctx, args) => {
         const authResult = await ctx.runQuery(internal.auth.getSessionUser, { sessionToken: args.sessionToken });
-        if (authResult) {
-            await ctx.runMutation(internal.push.deletePushTokensForUser, { userId: authResult.user._id });
+        // Only remove the calling device's push token so other devices stay registered.
+        if (authResult && args.pushToken) {
+            await ctx.runMutation(internal.push.deletePushToken, { token: args.pushToken });
         }
         await ctx.runMutation(internal.auth.revokeSession, { sessionToken: args.sessionToken });
         return { ok: true };
@@ -332,7 +398,16 @@ export const getSessionUser = internalQuery({
 export const forgotPassword = action({
     args: { email: v.string() },
     handler: async (ctx, args): Promise<{ error: string } | { ok: true }> => {
-        const user = await ctx.runQuery(internal.users.getUserByEmail, { email: args.email });
+        const email = normalizeEmail(args.email);
+        const attempt = await ctx.runMutation(internal.auth.consumeAuthAttempt, {
+            key: `forgot-password:${email}`,
+            ...FORGOT_PASSWORD_RATE_LIMIT,
+        });
+        if (!attempt.allowed) {
+            return { error: "Too many password reset requests. Please try again later." };
+        }
+
+        const user = await ctx.runQuery(internal.users.getUserByEmail, { email });
         if (!user) {
             // Don't reveal whether the email exists
             return { ok: true };
@@ -365,6 +440,10 @@ export const resetPassword = action({
         newPassword: v.string(),
     },
     handler: async (ctx, args): Promise<{ error: string } | { ok: true }> => {
+        if (args.newPassword.length < MIN_PASSWORD_LENGTH) {
+            return { error: `Password must be at least ${MIN_PASSWORD_LENGTH} characters` };
+        }
+
         const tokenHash = await hashSessionToken(args.token);
         const resetRecord = await ctx.runQuery(internal.auth.getPasswordResetToken, { tokenHash });
 

@@ -10,13 +10,24 @@ const resolveUrl = async (ctx: QueryCtx | MutationCtx, url: string) => {
     return await ctx.storage.getUrl(url);
 };
 
+export function normalizeEmail(email: string) {
+    return email.trim().toLowerCase();
+}
+
 export const getUserByEmail = internalQuery({
     args: { email: v.string() },
     handler: async (ctx, args) => {
-        return await ctx.db
+        const email = normalizeEmail(args.email);
+        const exact = await ctx.db
             .query("users")
-            .withIndex("by_email", (q) => q.eq("email", args.email))
+            .withIndex("by_email", (q) => q.eq("email", email))
             .unique();
+        if (exact) return exact;
+
+        // Legacy fallback: users created before emails were normalized may be
+        // stored with different casing. Remove once a data migration has run.
+        const users = await ctx.db.query("users").collect();
+        return users.find((user) => user.email.trim().toLowerCase() === email) ?? null;
     },
 });
 

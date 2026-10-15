@@ -328,7 +328,7 @@ Below is a catalog of the database indexes along with their optimizations:
 
 ## 4. Seeding Data
 
-Seeding is handled via Convex TypeScript mutation handlers located in `convex/seed.ts`. It allows initializing database configurations deterministically across development, staging, or production projects.
+Seeding is handled via Convex TypeScript mutation handlers located in `convex/seed.ts`. It allows initializing database configurations deterministically across development, staging, or production projects. Seeding uses an `internalMutation`, so it can only be invoked with the Convex CLI (never exposed to app clients).
 
 To seed the initial listing categories:
 ```bash
@@ -337,9 +337,9 @@ npx convex run seed
 
 ### Seeding Implementation Details:
 ```typescript
-import { mutation } from "./_generated/server";
+import { internalMutation } from "./_generated/server";
 
-export const seed = mutation({
+export const seed = internalMutation({
     args: {},
     handler: async (ctx) => {
         const categories = [

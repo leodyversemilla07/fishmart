@@ -1,6 +1,6 @@
 import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
-import { Doc } from "./_generated/dataModel";
+import { Doc, Id } from "./_generated/dataModel";
 import { MutationCtx, QueryCtx, mutation, query } from "./_generated/server";
 import { assertSeller, requireSessionUser } from "./lib/session";
 import { toPublicUser } from "./lib/users";
@@ -11,6 +11,42 @@ const resolveUrl = async (ctx: QueryCtx | MutationCtx, url: string) => {
     // Assume it's a storage ID
     return await ctx.storage.getUrl(url);
 };
+
+function assertValidPrice(price: number) {
+    if (!Number.isFinite(price) || price < 0) {
+        throw new Error("Price must be a non-negative number");
+    }
+}
+
+function assertValidStock(stock: number) {
+    if (!Number.isInteger(stock) || stock < 0) {
+        throw new Error("Stock must be a whole number of at least 0");
+    }
+}
+
+async function assertValidImageRefs(ctx: QueryCtx | MutationCtx, images: string[]) {
+    for (const image of images) {
+        if (typeof image !== "string" || image.trim().length === 0) {
+            throw new Error("Image references must be non-empty strings");
+        }
+        if (image.startsWith("http")) continue; // legacy external URLs
+        const url = await ctx.storage.getUrl(image);
+        if (!url) {
+            throw new Error("One or more images no longer exist; please re-upload them");
+        }
+    }
+}
+
+async function deleteStorageObjects(ctx: MutationCtx, imageRefs: string[]) {
+    for (const imageRef of imageRefs) {
+        if (!imageRef || imageRef.startsWith("http")) continue;
+        try {
+            await ctx.storage.delete(imageRef as Id<"_storage">);
+        } catch {
+            // Storage object may already be gone; cleanup is best-effort.
+        }
+    }
+}
 
 function productMatchesSearch(product: { name: string; description: string; species?: string; strain?: string; searchTerms?: string[] }, rawSearch?: string) {
     const search = rawSearch?.toLowerCase().trim();
@@ -291,6 +327,13 @@ export const create = mutation({
         const seller = await requireSessionUser(ctx, args.sessionToken);
         assertSeller(seller);
 
+        if (!args.name.trim()) {
+            throw new Error("Product name is required");
+        }
+        assertValidPrice(args.price);
+        assertValidStock(args.stock);
+        await assertValidImageRefs(ctx, args.images);
+
         const { images, sessionToken, ...productData } = args;
 
         // Build search terms for better discoverability
@@ -344,9 +387,9 @@ export const deleteProduct = mutation({
 
         for (const image of images) {
             await ctx.db.delete(image._id);
-            // Optionally delete from storage as well if it's a storage ID
-            // but we need to check if it's safe (ref counting?)
         }
+
+        await deleteStorageObjects(ctx, images.map((image) => image.imageUrl));
 
         await ctx.db.delete(args.id);
     },
@@ -377,6 +420,13 @@ export const update = mutation({
 
         const { id, images, sessionToken, ...updates } = args;
 
+        if (updates.price !== undefined) {
+            assertValidPrice(updates.price);
+        }
+        if (updates.stock !== undefined) {
+            assertValidStock(updates.stock);
+        }
+
         // Rebuild search terms if name or description changed
         if (updates.name || updates.description) {
             const name = updates.name || product.name;
@@ -394,7 +444,9 @@ export const update = mutation({
         }
 
         if (images) {
-            // Complex update: for now let's just replace all images
+            await assertValidImageRefs(ctx, images);
+
+            // Replace all images, cleaning up storage objects that are no longer referenced.
             const existingImages = await ctx.db
                 .query("product_images")
                 .withIndex("by_product", (q) => q.eq("productId", id))
@@ -403,6 +455,12 @@ export const update = mutation({
             for (const img of existingImages) {
                 await ctx.db.delete(img._id);
             }
+
+            const keptRefs = new Set(images);
+            await deleteStorageObjects(
+                ctx,
+                existingImages.map((img) => img.imageUrl).filter((ref) => !keptRefs.has(ref))
+            );
 
             for (const imageUrl of images) {
                 await ctx.db.insert("product_images", {

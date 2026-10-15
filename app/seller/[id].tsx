@@ -186,6 +186,7 @@ export default function SellerProfileScreen() {
             </View>
 
             <FlatList
+                key={seller.products.length > 0 ? 'grid' : 'list'}
                 data={seller.products}
                 keyExtractor={item => item._id}
                 renderItem={renderProductItem}

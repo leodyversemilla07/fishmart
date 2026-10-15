@@ -1,4 +1,5 @@
 import { Id } from '@/convex/_generated/dataModel';
+import { useCartStore } from '@/store/cartStore';
 import { secureAuthStorage } from '@/store/secureStorage';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
@@ -54,6 +55,8 @@ export const useAuthStore = create<AuthState>()(
             },
 
             logout: () => {
+                // Don't leak the previous user's cart into the next session.
+                useCartStore.getState().clearCart();
                 set({
                     user: null,
                     convexUser: null,

@@ -77,19 +77,36 @@ export async function getOrderItems(ctx: QueryCtx | MutationCtx, orderId: Id<"or
         .collect();
 }
 
+/**
+ * Aggregates line quantities per product so duplicate cart lines cannot
+ * bypass stock checks or double-deduct inventory.
+ */
+export function aggregateOrderQuantities(items: { productId: Id<"products">; quantity: number }[]) {
+    const quantities = new Map<Id<"products">, number>();
+    for (const item of items) {
+        if (!Number.isInteger(item.quantity) || item.quantity < 1) {
+            throw new Error("Quantity must be a whole number of at least 1");
+        }
+        quantities.set(item.productId, (quantities.get(item.productId) ?? 0) + item.quantity);
+    }
+    return quantities;
+}
+
 export async function assertOrderInventoryAvailable(
     ctx: QueryCtx | MutationCtx,
     items: { productId: Id<"products">; quantity: number }[]
 ) {
-    for (const item of items) {
-        const product = await ctx.db.get(item.productId);
+    if (items.length === 0) {
+        throw new Error("Order must contain at least one item");
+    }
+    const quantities = aggregateOrderQuantities(items);
+
+    for (const [productId, quantity] of quantities) {
+        const product = await ctx.db.get(productId);
         if (!product || product.status !== "ACTIVE") {
             throw new Error("One or more products are unavailable");
         }
-        if (item.quantity < 1) {
-            throw new Error("Quantity must be at least 1");
-        }
-        if (product.stock < item.quantity) {
+        if (product.stock < quantity) {
             throw new Error(`Insufficient stock for ${product.name}`);
         }
     }
@@ -101,36 +118,50 @@ async function applyOrderInventoryCore(ops: InventoryMutationOps, order: Invento
     }
 
     const items = await ops.getOrderItems(order._id);
+    const aggregated = new Map<Id<"products">, { quantity: number; sellerId: Id<"users">; productName: string }>();
     for (const item of items) {
-        const product = await ops.getProduct(item.productId);
+        if (!Number.isInteger(item.quantity) || item.quantity < 1) {
+            throw new Error("Quantity must be a whole number of at least 1");
+        }
+        const entry = aggregated.get(item.productId);
+        if (entry) {
+            entry.quantity += item.quantity;
+        } else {
+            aggregated.set(item.productId, {
+                quantity: item.quantity,
+                sellerId: item.sellerId,
+                productName: item.productName,
+            });
+        }
+    }
+
+    for (const [productId, { quantity }] of aggregated) {
+        const product = await ops.getProduct(productId);
         if (!product || product.status !== "ACTIVE") {
             throw new Error("One or more products are unavailable");
         }
-        if (item.quantity < 1) {
-            throw new Error("Quantity must be at least 1");
-        }
-        if (product.stock < item.quantity) {
+        if (product.stock < quantity) {
             throw new Error(`Insufficient stock for ${product.name}`);
         }
     }
 
-    for (const item of items) {
-        const product = await ops.getProduct(item.productId);
+    for (const [productId, { quantity, sellerId, productName }] of aggregated) {
+        const product = await ops.getProduct(productId);
         if (!product) {
             throw new Error("Product missing during inventory commit");
         }
 
-        await ops.patch(item.productId, {
-            stock: product.stock - item.quantity,
-            sales: (product.sales || 0) + item.quantity,
+        await ops.patch(productId, {
+            stock: product.stock - quantity,
+            sales: (product.sales || 0) + quantity,
         });
 
         await ops.notify({
-            userId: item.sellerId,
+            userId: sellerId,
             type: "NEW_ORDER",
             title: "New Order Received!",
-            message: `You have a new order for ${item.productName} (x${item.quantity})`,
-            data: { orderId: order._id, orderNumber: order.orderNumber, productId: item.productId },
+            message: `You have a new order for ${productName} (x${quantity})`,
+            data: { orderId: order._id, orderNumber: order.orderNumber, productId },
         });
     }
 
@@ -219,12 +250,24 @@ export async function applyOrderInventoryIfNeededForTests(
     );
 }
 
-export async function buildOrderLineItems(ctx: QueryCtx | MutationCtx, orderId: Id<"orders">) {
-    const items = await getOrderItems(ctx, orderId);
-    return items.map((item: OrderItemDoc) => ({
+export async function buildOrderLineItems(ctx: QueryCtx | MutationCtx, order: Doc<"orders">) {
+    const items = await getOrderItems(ctx, order._id);
+    const lineItems = items.map((item: OrderItemDoc) => ({
         name: item.productName,
         quantity: item.quantity,
         amount: item.price,
         imageUrl: item.productImage,
     }));
+
+    // Charge the shipping fee through PayMongo so the collected amount matches order.total.
+    if (order.shippingFee > 0) {
+        lineItems.push({
+            name: "Shipping Fee",
+            quantity: 1,
+            amount: order.shippingFee,
+            imageUrl: undefined,
+        });
+    }
+
+    return lineItems;
 }

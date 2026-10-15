@@ -47,6 +47,7 @@ export default function OrderDetailsScreen() {
     // Convex Query
     const order = useQuery(api.orders.get, sessionToken && orderId ? { sessionToken, id: orderId } : "skip");
     const retryPayment = useAction(api.orders.retryPayment);
+    const cancelOrder = useMutation(api.orders.cancel);
     const ensureConversation = useMutation(api.chat.ensureConversation);
     const loading = order === undefined;
     const [now, setNow] = useState(Date.now());
@@ -117,6 +118,28 @@ export default function OrderDetailsScreen() {
             console.error('Failed to retry payment:', error);
             Alert.alert('Payment Error', 'Unable to retry payment right now. Please try again.');
         }
+    };
+
+    const handleCancelOrder = () => {
+        Alert.alert(
+            'Cancel Order',
+            'Are you sure you want to cancel this order? This cannot be undone.',
+            [
+                { text: 'Keep Order', style: 'cancel' },
+                {
+                    text: 'Yes, Cancel',
+                    style: 'destructive',
+                    onPress: async () => {
+                        if (!sessionToken || !orderId) return;
+                        try {
+                            await cancelOrder({ sessionToken, orderId });
+                        } catch {
+                            Alert.alert('Error', 'Unable to cancel this order.');
+                        }
+                    },
+                },
+            ]
+        );
     };
 
     const handleContactSeller = async () => {
@@ -190,6 +213,7 @@ export default function OrderDetailsScreen() {
     }
 
     const StatusIcon = getStatusIcon(order.status);
+    const canCancelOrder = order.status === 'PENDING' && order.paymentStatus !== 'PAID';
 
     return (
         <View style={styles.container}>
@@ -383,6 +407,16 @@ export default function OrderDetailsScreen() {
                             onPress={handleRetryPayment}
                         >
                             Retry Payment
+                        </Button>
+                    )}
+                    {canCancelOrder && (
+                        <Button
+                            mode="outlined"
+                            style={styles.actionButton}
+                            textColor="#EF4444"
+                            onPress={handleCancelOrder}
+                        >
+                            Cancel Order
                         </Button>
                     )}
                     <Button
@@ -591,6 +625,7 @@ const styles = StyleSheet.create({
     },
     actions: {
         flexDirection: 'row',
+        flexWrap: 'wrap',
         gap: 12,
         marginTop: 8,
     },

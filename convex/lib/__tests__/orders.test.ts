@@ -10,7 +10,7 @@ function toId<TableName extends TableNames>(value: string): Id<TableName> {
   return value as Id<TableName>;
 }
 
-function createCtx() {
+function createCtx(quantities: number[] = [2]) {
   const productId = toId<'products'>('product-1');
   const orderId = toId<'orders'>('order-1');
   const sellerId = toId<'users'>('seller-1');
@@ -27,14 +27,12 @@ function createCtx() {
   >([
     [String(orderId), { _id: orderId, orderNumber: 'ORD-1', inventoryCommittedAt: undefined }],
   ]);
-  const orderItems = [
-    {
-      productId,
-      sellerId,
-      quantity: 2,
-      productName: 'Fish Pair',
-    },
-  ];
+  const orderItems = quantities.map((quantity) => ({
+    productId,
+    sellerId,
+    quantity,
+    productName: 'Fish Pair',
+  }));
   const notifications: unknown[] = [];
 
   const ctx: InventoryMutationTestContext = {
@@ -115,6 +113,26 @@ describe('order inventory helper', () => {
     expect(firstRevert).toBe(true);
     expect(secondRevert).toBe(false);
     expect(products.get(String(productId))).toMatchObject({ stock: 5, sales: 1 });
+  });
+
+  it('aggregates duplicate lines into a single stock deduction and notification', async () => {
+    const { ctx, products, orders, notifications, orderId, productId } = createCtx([2, 2]);
+
+    const order = orders.get(String(orderId));
+    if (!order) throw new Error('Order not found');
+    const applied = await applyOrderInventoryIfNeededForTests(ctx, order);
+
+    expect(applied).toBe(true);
+    expect(products.get(String(productId))).toMatchObject({ stock: 1, sales: 5 });
+    expect(notifications).toHaveLength(1);
+  });
+
+  it('rejects fractional quantities', async () => {
+    const { ctx, orders, orderId } = createCtx([1.5]);
+
+    const order = orders.get(String(orderId));
+    if (!order) throw new Error('Order not found');
+    await expect(applyOrderInventoryIfNeededForTests(ctx, order)).rejects.toThrow('whole number');
   });
 
   it('returns reservation expiry for non-COD methods', () => {

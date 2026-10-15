@@ -16,6 +16,8 @@ type SellerOrder = {
     _creationTime: number;
     orderNumber: string;
     status: OrderStatus;
+    paymentMethod: string;
+    paymentStatus: string;
     total: number;
     trackingNumber?: string;
     courier?: string;
@@ -52,6 +54,8 @@ export default function SellerOrdersScreen() {
             _creationTime: order._creationTime,
             orderNumber: order.orderNumber,
             status: order.status,
+            paymentMethod: order.paymentMethod,
+            paymentStatus: order.paymentStatus,
             total: order.total,
             trackingNumber: order.trackingNumber,
             courier: order.courier,
@@ -161,8 +165,10 @@ export default function SellerOrdersScreen() {
     const renderOrderItem = ({ item }: { item: SellerOrder }) => {
         const currentStatus = item.status;
         const statusInfo = STATUS_FLOW[currentStatus];
-        const canProgress = statusInfo?.next && currentStatus !== 'CANCELLED' && currentStatus !== 'DELIVERED';
-        const canCancel = currentStatus === 'PENDING' || currentStatus === 'CONFIRMED';
+        const isPaid = item.paymentMethod === 'COD' || item.paymentStatus === 'PAID';
+        const isTerminal = currentStatus === 'CANCELLED' || currentStatus === 'DELIVERED' || currentStatus === 'REFUNDED';
+        const canProgress = Boolean(statusInfo?.next) && !isTerminal && isPaid;
+        const canCancel = currentStatus === 'PENDING' || currentStatus === 'CONFIRMED' || currentStatus === 'PROCESSING';
 
         return (
             <Card style={styles.orderCard}>
@@ -230,6 +236,11 @@ export default function SellerOrdersScreen() {
                         </View>
 
                         <View style={styles.actionButtons}>
+                            {!isPaid && !isTerminal && (
+                                <Text variant="labelSmall" style={styles.awaitingPayment}>
+                                    Awaiting payment
+                                </Text>
+                            )}
                             {canCancel && (
                                 <Button
                                     mode="outlined"
@@ -472,6 +483,11 @@ const styles = StyleSheet.create({
     actionButtons: {
         flexDirection: 'row',
         gap: 8,
+        alignItems: 'center',
+    },
+    awaitingPayment: {
+        color: '#F59E0B',
+        fontWeight: '600',
     },
     actionBtn: {
         borderRadius: 8,

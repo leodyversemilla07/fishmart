@@ -21,7 +21,7 @@ export default function ChatRoomScreen() {
     const messages = messagesQuery ?? [];
     const sendMessage = useMutation(api.chat.sendMessage);
 
-    const loading = messagesQuery === undefined;
+    const loading = Boolean(id) && messagesQuery === undefined;
     const [messageText, setMessageText] = useState('');
     const [sending, setSending] = useState(false);
     const flatListRef = useRef<FlatList>(null);

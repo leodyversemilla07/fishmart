@@ -59,6 +59,11 @@ export default function CheckoutScreen() {
     const selectedPaymentConfig = PAYMENT_METHODS.find(p => p.value === paymentMethod);
 
     const handlePlaceOrder = async () => {
+        if (items.length === 0) {
+            Alert.alert('Cart Empty', 'Add at least one product before checking out.');
+            return;
+        }
+
         if (!selectedAddress) {
             Alert.alert('Error', 'Please select or add a delivery address.');
             return;

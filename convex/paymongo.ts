@@ -2,7 +2,7 @@ import { v } from "convex/values";
 import { ActionCtx, action, internalAction, internalMutation, internalQuery } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
-import { applyOrderInventoryIfNeeded, buildOrderLineItems, getReservationExpiryTimestamp, revertOrderInventoryIfCommitted } from "./lib/orders";
+import { applyOrderInventoryIfNeeded, buildOrderLineItems, getReservationExpiryTimestamp } from "./lib/orders";
 import { normalizePaymentMethod, toPayMongoPaymentMethod } from "./lib/payments";
 
 const PAYMONGO_API_URL = "https://api.paymongo.com/v2";
@@ -192,7 +192,7 @@ export const getOrderForCheckout = internalQuery({
 
         const buyer = await ctx.db.get(order.buyerId);
         const address = await ctx.db.get(order.addressId);
-        const items = await buildOrderLineItems(ctx, order._id);
+        const items = await buildOrderLineItems(ctx, order);
 
         return {
             orderNumber: order.orderNumber,
@@ -277,6 +277,8 @@ export const updatePaymentStatus = internalMutation({
         paymentMethod: v.optional(v.string()),
         transactionId: v.optional(v.string()),
         paidAt: v.optional(v.number()),
+        paidAmount: v.optional(v.number()), // centavos, as reported by PayMongo
+        currency: v.optional(v.string()),
     },
     handler: async (ctx, args) => {
         let payment = null;
@@ -298,23 +300,18 @@ export const updatePaymentStatus = internalMutation({
         }
 
         if (!payment) {
+            if (args.status === "FAILED") {
+                // Failure events can arrive before PayMongo exposes the checkout session id.
+                // There is nothing to revert: the reservation expiry sweep is the backstop.
+                return null;
+            }
             throw new Error("Payment not found");
         }
 
-        if (payment.status === "PAID" && args.status === "PAID") {
+        // Terminal-state guard: a settled payment must never be downgraded.
+        if (payment.status === "PAID" || payment.status === "REFUNDED") {
             return payment._id;
         }
-
-        const normalizedMethod = normalizePaymentMethod(args.paymentMethod);
-
-        await ctx.db.patch(payment._id, {
-            status: args.status,
-            ...(normalizedMethod && { paymentMethod: normalizedMethod }),
-            ...(args.transactionId && { transactionId: args.transactionId }),
-            ...(args.paidAt && { paidAt: args.paidAt }),
-            ...(args.paymentIntentId && { paymentIntentId: args.paymentIntentId }),
-            ...(args.checkoutSessionId && { checkoutSessionId: args.checkoutSessionId }),
-        });
 
         const order = await ctx.db.get(payment.orderId);
         if (!order) {
@@ -322,6 +319,36 @@ export const updatePaymentStatus = internalMutation({
         }
 
         if (args.status === "PAID") {
+            if (order.paymentStatus === "PAID") {
+                return payment._id;
+            }
+            if (order.status !== "PENDING") {
+                // e.g. the reservation sweep cancelled the order while payment was in flight.
+                throw new Error(
+                    `Payment received for order ${order.orderNumber} in status ${order.status}; manual review required`
+                );
+            }
+
+            const expectedAmount = Math.round(order.total * 100);
+            if (args.paidAmount !== undefined && args.paidAmount !== expectedAmount) {
+                throw new Error(
+                    `Payment amount mismatch for order ${order.orderNumber}: expected ${expectedAmount}, received ${args.paidAmount}`
+                );
+            }
+            if (args.currency !== undefined && args.currency.toUpperCase() !== "PHP") {
+                throw new Error(`Unsupported payment currency "${args.currency}" for order ${order.orderNumber}`);
+            }
+
+            const normalizedMethod = normalizePaymentMethod(args.paymentMethod);
+            await ctx.db.patch(payment._id, {
+                status: "PAID",
+                ...(normalizedMethod && { paymentMethod: normalizedMethod }),
+                ...(args.transactionId && { transactionId: args.transactionId }),
+                ...(args.paidAt && { paidAt: args.paidAt }),
+                ...(args.paymentIntentId && { paymentIntentId: args.paymentIntentId }),
+                ...(args.checkoutSessionId && { checkoutSessionId: args.checkoutSessionId }),
+            });
+
             await applyOrderInventoryIfNeeded(ctx, order);
             await ctx.db.patch(payment.orderId, {
                 paymentStatus: "PAID",
@@ -337,13 +364,36 @@ export const updatePaymentStatus = internalMutation({
                 message: `Your payment for order ${order.orderNumber} has been confirmed.`,
                 data: { orderId: payment.orderId, orderNumber: order.orderNumber },
             });
-        } else if (args.status === "FAILED") {
-            await revertOrderInventoryIfCommitted(ctx, order);
-            await ctx.db.patch(payment.orderId, {
-                paymentStatus: "FAILED",
-                reservationExpiresAt: undefined,
-            });
+
+            return payment._id;
         }
+
+        if (args.status === "FAILED") {
+            if (order.paymentStatus === "PAID" || order.paymentStatus === "FAILED") {
+                return payment._id;
+            }
+
+            await ctx.db.patch(payment._id, {
+                status: "FAILED",
+                ...(args.paymentIntentId && { paymentIntentId: args.paymentIntentId }),
+            });
+            // Keep inventory committed while a retry is still possible, and keep
+            // reservationExpiresAt so the expiry sweep can cancel the order (and
+            // revert stock) if the buyer never completes a new attempt.
+            await ctx.db.patch(payment.orderId, { paymentStatus: "FAILED" });
+
+            return payment._id;
+        }
+
+        const normalizedMethod = normalizePaymentMethod(args.paymentMethod);
+        await ctx.db.patch(payment._id, {
+            status: args.status,
+            ...(normalizedMethod && { paymentMethod: normalizedMethod }),
+            ...(args.transactionId && { transactionId: args.transactionId }),
+            ...(args.paidAt && { paidAt: args.paidAt }),
+            ...(args.paymentIntentId && { paymentIntentId: args.paymentIntentId }),
+            ...(args.checkoutSessionId && { checkoutSessionId: args.checkoutSessionId }),
+        });
 
         return payment._id;
     },
@@ -360,9 +410,17 @@ function readPayMongoEvent(payload: any) {
 }
 
 function expectedPayMongoLivemode() {
-    const raw = process.env.PAYMONGO_EXPECT_LIVEMODE ?? process.env.PAYMONGO_LIVEMODE;
-    if (raw === undefined) return undefined;
-    return raw === "true" || raw === "live" || raw === "1";
+    const explicit = process.env.PAYMONGO_EXPECT_LIVEMODE ?? process.env.PAYMONGO_LIVEMODE;
+    if (explicit !== undefined) {
+        return explicit === "true" || explicit === "live" || explicit === "1";
+    }
+
+    // Default to the mode implied by the configured secret key so test events
+    // cannot mutate live orders (and vice versa).
+    const secretKey = process.env.PAYMONGO_SECRET_KEY;
+    if (secretKey?.startsWith("sk_live_")) return true;
+    if (secretKey?.startsWith("sk_test_")) return false;
+    return undefined;
 }
 
 export const enqueueWebhookEvent = internalMutation({
@@ -438,6 +496,8 @@ export const processWebhookEvent = internalMutation({
                         paymentMethod: paidPayment?.attributes?.source?.type ?? paymentIntent?.attributes?.payment_method_type,
                         transactionId: paidPayment?.id ?? paymentIntent?.id,
                         paidAt: Date.now(),
+                        paidAmount: paidPayment?.attributes?.amount,
+                        currency: paidPayment?.attributes?.currency,
                     });
                     break;
                 }
@@ -450,6 +510,8 @@ export const processWebhookEvent = internalMutation({
                         paymentMethod: attributes.source?.type,
                         transactionId: eventData.id,
                         paidAt: Date.now(),
+                        paidAmount: attributes.amount,
+                        currency: attributes.currency,
                     });
                     break;
                 }

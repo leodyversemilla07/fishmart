@@ -79,7 +79,12 @@ export default function SellScreen() {
             setError('Please enter a description');
             return false;
         }
-        if (!price || parseFloat(price) <= 0) {
+        if (!price) {
+            setError('Please enter a valid price');
+            return false;
+        }
+        const parsedPrice = Number.parseFloat(price);
+        if (!Number.isFinite(parsedPrice) || parsedPrice <= 0) {
             setError('Please enter a valid price');
             return false;
         }
@@ -154,12 +159,16 @@ export default function SellScreen() {
                 uploadedUrls.push(url);
             }
 
+            const parsedPrice = Number.parseFloat(price);
+            const parsedStock = Number.parseInt(stock, 10);
+            const stockValue = Number.isFinite(parsedStock) && parsedStock >= 0 ? parsedStock : 1;
+
             await createProduct({
                 sessionToken,
                 name: name.trim(),
                 description: description.trim(),
-                price: parseFloat(price),
-                stock: parseInt(stock) || 1,
+                price: parsedPrice,
+                stock: stockValue,
                 categoryId: category!,
                 city: selectedCity!.name,
                 province: selectedProvince!.name,

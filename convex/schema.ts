@@ -249,4 +249,11 @@ export default defineSchema({
         error: v.optional(v.string()),
     })
         .index("by_provider_eventId", ["provider", "eventId"]),
+
+    // Lightweight fixed-window rate limiting for unauthenticated auth actions
+    auth_rate_limits: defineTable({
+        key: v.string(),
+        windowStart: v.number(),
+        count: v.number(),
+    }).index("by_key", ["key"]),
 });

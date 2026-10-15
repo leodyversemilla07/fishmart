@@ -5,7 +5,7 @@ import { usePaginatedQuery, useQuery } from 'convex/react';
 import { Image } from 'expo-image';
 import { router, useLocalSearchParams } from 'expo-router';
 import { LucideFilter, LucideMapPin, LucideStar, LucideX } from 'lucide-react-native';
-import { memo, useCallback, useEffect, useState } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Dimensions, FlatList, Modal, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { Button, Chip, Divider, RadioButton, Searchbar, Text, TextInput, useTheme } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -57,6 +57,8 @@ export default function ExploreScreen() {
 
   const [searchQuery, setSearchQuery] = useState(params.search || '');
   const [selectedCategory, setSelectedCategory] = useState<'all' | Id<"categories">>('all');
+  // Once the user taps a category chip, stop re-applying deep-linked params.
+  const categoryTouchedRef = useRef(false);
 
   // Sync search query from URL params when navigating from home
   useEffect(() => {
@@ -75,6 +77,7 @@ export default function ExploreScreen() {
 
   // Sync category selection when navigating with category param
   useEffect(() => {
+    if (categoryTouchedRef.current) return;
     if (params.category === 'all') {
       setSelectedCategory('all');
     } else if (categoryIdFromSlug) {
@@ -92,7 +95,7 @@ export default function ExploreScreen() {
   // Build query args dynamically
   const activeCategoryId = selectedCategory !== 'all'
     ? selectedCategory
-    : categoryIdFromSlug;
+    : undefined;
   const minPriceNumber = minPrice.trim() ? Number.parseFloat(minPrice) : undefined;
   const maxPriceNumber = maxPrice.trim() ? Number.parseFloat(maxPrice) : undefined;
 
@@ -173,7 +176,10 @@ export default function ExploreScreen() {
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoriesContainer}>
         <Chip
           selected={selectedCategory === 'all'}
-          onPress={() => setSelectedCategory('all')}
+          onPress={() => {
+            categoryTouchedRef.current = true;
+            setSelectedCategory('all');
+          }}
           mode="outlined"
           showSelectedCheck={false}
           accessibilityLabel="Show all categories"
@@ -193,7 +199,10 @@ export default function ExploreScreen() {
           <Chip
             key={category._id}
             selected={selectedCategory === category._id}
-            onPress={() => setSelectedCategory(category._id)}
+            onPress={() => {
+              categoryTouchedRef.current = true;
+              setSelectedCategory(category._id);
+            }}
             mode="outlined"
             showSelectedCheck={false}
             accessibilityLabel={`Filter by ${category.name}`}
